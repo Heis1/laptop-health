@@ -43,62 +43,6 @@ UP_WARM_Mbps, UP_HOT_Mbps = None, None      # not used by default
 
 
 # -------------------- helpers --------------------
-def which(cmd: str) -> str | None:
-    return shutil.which(cmd)
-
-
-def run_cmd(args: list[str], timeout_s: int = 4) -> tuple[int, str, str]:
-    try:
-        cp = subprocess.run(args, capture_output=True, text=True, timeout=timeout_s)
-        return cp.returncode, (cp.stdout or "").strip(), (cp.stderr or "").strip()
-    except subprocess.TimeoutExpired:
-        return 124, "", f"timeout after {timeout_s}s"
-    except Exception as e:
-        return 1, "", f"{type(e).__name__}: {e}"
-
-
-def clip_set_text(text: str):
-    cb = QtWidgets.QApplication.clipboard()
-    md = QtCore.QMimeData()
-    md.setText(text)
-    cb.setMimeData(md)
-
-
-def worst_state(states: list[str]) -> str:
-    if "Hot" in states:
-        return "Hot"
-    if "Warm" in states:
-        return "Warm"
-    return "Normal"
-
-
-def state_for(v: float | None, warm: float, hot: float) -> str | None:
-    if v is None:
-        return None
-    if v < warm:
-        return "Normal"
-    if v < hot:
-        return "Warm"
-    return "Hot"
-
-
-def human_bps(bps: float) -> str:
-    # bytes/sec to human string
-    if bps < 1024:
-        return f"{bps:.0f} B/s"
-    kb = bps / 1024.0
-    if kb < 1024:
-        return f"{kb:.1f} KB/s"
-    mb = kb / 1024.0
-    if mb < 1024:
-        return f"{mb:.2f} MB/s"
-    gb = mb / 1024.0
-    return f"{gb:.2f} GB/s"
-
-
-def bps_to_mbps(bps_bytes_per_s: float) -> float:
-    # bytes/s -> megabits/s
-    return (bps_bytes_per_s * 8.0) / 1_000_000.0
 
 
 # -------------------- backends --------------------
@@ -166,18 +110,18 @@ def parse_sensors_text(raw: str) -> dict:
 
 
 def read_sensors() -> tuple[dict, str]:
-    if not which("sensors"):
+    if not system.which("sensors"):
         return {"cpu": None, "gpu": None, "ssd": None, "raw": ""}, "missing: sensors (lm-sensors)"
-    rc, out, err = run_cmd(["sensors"], timeout_s=2)
+    rc, out, err = system.run_cmd(["sensors"], timeout_s=2)
     if rc != 0:
         return {"cpu": None, "gpu": None, "ssd": None, "raw": out + ("\n" + err if err else "")}, f"sensors failed (rc={rc}): {err or out}"
     return parse_sensors_text(out), ""
 
 
 def read_nvidia_gpu_temp() -> tuple[float | None, str]:
-    if not which("nvidia-smi"):
+    if not system.which("nvidia-smi"):
         return None, "missing: nvidia-smi"
-    rc, out, err = run_cmd(["nvidia-smi", "--query-gpu=temperature.gpu", "--format=csv,noheader,nounits"], timeout_s=2)
+    rc, out, err = system.run_cmd(["nvidia-smi", "--query-gpu=temperature.gpu", "--format=csv,noheader,nounits"], timeout_s=2)
     if rc != 0:
         return None, f"nvidia-smi failed (rc={rc}): {err or out}"
     try:
@@ -189,7 +133,7 @@ def read_nvidia_gpu_temp() -> tuple[float | None, str]:
 
 def find_nvme_devices() -> list[str]:
     devs = []
-    if not which("nvme"):
+    if not system.which("nvme"):
         return devs
     try:
         for name in os.listdir("/dev"):
@@ -201,7 +145,7 @@ def find_nvme_devices() -> list[str]:
 
 
 def read_nvme_temp() -> tuple[float | None, str]:
-    if not which("nvme"):
+    if not system.which("nvme"):
         return None, "missing: nvme (nvme-cli)"
     devs = find_nvme_devices()
     if not devs:
@@ -210,7 +154,7 @@ def read_nvme_temp() -> tuple[float | None, str]:
     temps = []
     last_err = ""
     for dev in devs:
-        rc, out, err = run_cmd(["nvme", "smart-log", dev], timeout_s=2)
+        rc, out, err = system.run_cmd(["nvme", "smart-log", dev], timeout_s=2)
         if rc != 0:
             last_err = f"{dev}: rc={rc}: {err or out}"
             continue
@@ -224,100 +168,9 @@ def read_nvme_temp() -> tuple[float | None, str]:
 
 
 # -------------------- power profiles --------------------
-def powerprofiles_get_active() -> tuple[str, str]:
-    if not which("powerprofilesctl"):
-        return "—", "missing: powerprofilesctl"
-    rc, out, err = run_cmd(["powerprofilesctl", "get"], timeout_s=2)
-    if rc != 0:
-        return "—", f"powerprofilesctl get failed (rc={rc}): {err or out}"
-    v = out.strip().lower()
-    if "power-saver" in v or "power saver" in v:
-        return "Quiet", ""
-    if "balanced" in v:
-        return "Balanced", ""
-    if "performance" in v:
-        return "Performance", ""
-    return out.strip() or "—", ""
-
-
-def powerprofiles_set(mode: str) -> tuple[bool, str]:
-    if not which("powerprofilesctl"):
-        return False, "powerprofilesctl not installed"
-    mapping = {"Quiet": "power-saver", "Balanced": "balanced", "Performance": "performance"}
-    prof = mapping.get(mode)
-    if not prof:
-        return False, "unknown mode"
-    rc, out, err = run_cmd(["powerprofilesctl", "set", prof], timeout_s=2)
-    if rc != 0:
-        return False, (err or out or f"rc={rc}")
-    return True, ""
 
 
 # -------------------- network helpers --------------------
-def get_default_iface_and_ip() -> tuple[str | None, str | None]:
-    # Best-effort: choose interface with a non-loopback IPv4 and is up
-    try:
-        stats = psutil.net_if_stats()
-        addrs = psutil.net_if_addrs()
-        for nic, st in stats.items():
-            if not st.isup:
-                continue
-            if nic.lower().startswith("lo"):
-                continue
-            ip = None
-            for a in addrs.get(nic, []):
-                if a.family == socket.AF_INET and a.address and not a.address.startswith("127."):
-                    ip = a.address
-                    break
-            if ip:
-                return nic, ip
-    except Exception:
-        pass
-    return None, None
-
-def nmcli_wifi_status() -> tuple[str | None, int | None, str | None]:
-    """
-    Returns (ssid, signal_percent, rate) for active wifi if nmcli exists.
-
-    Supports both:
-      - ACTIVE style: "yes:<ssid>:<signal>:<rate>" (when using ACTIVE field)
-      - IN-USE style: "*:<ssid>:<signal>:<rate>"  (common default on Mint)
-    """
-    if not which("nmcli"):
-        return None, None, None
-
-    # 1) Try ACTIVE format (yes:)
-    rc, out, err = run_cmd(["nmcli", "-t", "-f", "ACTIVE,SSID,SIGNAL,RATE", "dev", "wifi"], timeout_s=3)
-    if rc == 0 and out:
-        for line in out.splitlines():
-            if line.startswith("yes:"):
-                parts = line.split(":")
-                if len(parts) >= 4:
-                    ssid = parts[1] or None
-                    try:
-                        signal = int(parts[2]) if parts[2].isdigit() else None
-                    except Exception:
-                        signal = None
-                    rate = parts[3] or None
-                    return ssid, signal, rate
-
-    # 2) Fallback: IN-USE format (*:)
-    rc, out, err = run_cmd(["nmcli", "-t", "-f", "IN-USE,SSID,SIGNAL,RATE", "dev", "wifi"], timeout_s=3)
-    if rc == 0 and out:
-        for line in out.splitlines():
-            # "*:Private:76:270 Mbit/s"
-            if line.startswith("*:"):
-                parts = line.split(":")
-                if len(parts) >= 4:
-                    ssid = parts[1] or None
-                    try:
-                        signal = int(parts[2]) if parts[2].isdigit() else None
-                    except Exception:
-                        signal = None
-                    rate = parts[3] or None
-                    return ssid, signal, rate
-
-    return None, None, None
 
 
 
@@ -438,7 +291,7 @@ class DiagnosticsDialog(QtWidgets.QDialog):
         self.box.moveCursor(QtGui.QTextCursor.Start)
 
     def copy_all(self):
-        clip_set_text(self.box.toPlainText())
+        system.clip_set_text(self.box.toPlainText())
         QtWidgets.QMessageBox.information(self, "Copied", "Diagnostics copied to clipboard.")
 
 
@@ -449,13 +302,13 @@ class SpeedTestWorker(QtCore.QObject):
     @QtCore.Slot()
     def run(self):
         # Detect what "speedtest" actually is on this system.
-        if which("speedtest"):
-            rc_v, out_v, err_v = run_cmd(["speedtest", "--version"], timeout_s=5)
+        if system.which("speedtest"):
+            rc_v, out_v, err_v = system.run_cmd(["speedtest", "--version"], timeout_s=5)
             ver = (out_v or err_v or "").lower()
 
             # ---- speedtest-cli (python) ----
             if "speedtest-cli" in ver or "sivel" in ver:
-                rc, out, err = run_cmd(["speedtest", "--json"], timeout_s=180)
+                rc, out, err = system.run_cmd(["speedtest", "--json"], timeout_s=180)
                 if rc != 0 or not out:
                     self.finished.emit(
                         False,
@@ -501,7 +354,7 @@ class SpeedTestWorker(QtCore.QObject):
             ]
             last_out, last_err = "", ""
             for cmd in candidates:
-                rc, out, err = run_cmd(cmd, timeout_s=120)
+                rc, out, err = system.run_cmd(cmd, timeout_s=120)
                 last_out, last_err = out, err
                 if not out:
                     continue
@@ -542,8 +395,8 @@ class SpeedTestWorker(QtCore.QObject):
             return
 
         # explicit fallback if only speedtest-cli is installed as speedtest-cli binary
-        if which("speedtest-cli"):
-            rc, out, err = run_cmd(["speedtest-cli", "--json"], timeout_s=180)
+        if system.which("speedtest-cli"):
+            rc, out, err = system.run_cmd(["speedtest-cli", "--json"], timeout_s=180)
             if rc != 0 or not out:
                 self.finished.emit(False, f"speedtest-cli failed (rc={rc}).\n\nstdout:\n{out or '(empty)'}\n\nstderr:\n{err or '(empty)'}")
                 return
@@ -826,7 +679,7 @@ class MainWindow(QtWidgets.QMainWindow):
 
     # -------- power mode --------
     def set_mode(self, mode: str):
-        ok, err = powerprofiles_set(mode)
+        ok, err = system.powerprofiles_set(mode)
         if not ok:
             QtWidgets.QMessageBox.warning(self, "Power mode failed", err)
         self.refresh_backends()
@@ -863,7 +716,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self.btn_speed.setEnabled(True)
         self.btn_speed.setText("Speed test")
 
-        clip_set_text(msg)
+        system.clip_set_text(msg)
         if ok:
             self._notify(APP_NAME, "Speed test complete (copied to clipboard).")
             QtWidgets.QMessageBox.information(self, "Speed test", msg + "\n(copied to clipboard)")
@@ -879,12 +732,12 @@ class MainWindow(QtWidgets.QMainWindow):
         parts.append(self.badge.text())
 
         parts.append("\n=== BACKENDS ===")
-        parts.append(f"sensors: {which('sensors') or 'missing'}")
-        parts.append(f"nvidia-smi: {which('nvidia-smi') or 'missing'}")
-        parts.append(f"nvme: {which('nvme') or 'missing'}")
-        parts.append(f"powerprofilesctl: {which('powerprofilesctl') or 'missing'}")
-        parts.append(f"nmcli: {which('nmcli') or 'missing'}")
-        parts.append(f"speedtest: {which('speedtest') or which('speedtest-cli') or 'missing'}")
+        parts.append(f"sensors: {system.which('sensors') or 'missing'}")
+        parts.append(f"nvidia-smi: {system.which('nvidia-smi') or 'missing'}")
+        parts.append(f"nvme: {system.which('nvme') or 'missing'}")
+        parts.append(f"powerprofilesctl: {system.which('powerprofilesctl') or 'missing'}")
+        parts.append(f"nmcli: {system.which('nmcli') or 'missing'}")
+        parts.append(f"speedtest: {system.which('speedtest') or system.which('speedtest-cli') or 'missing'}")
 
         if (self.last_sensors_raw or "").strip():
             parts.append("\n=== sensors (raw) ===")
@@ -905,7 +758,7 @@ class MainWindow(QtWidgets.QMainWindow):
         return "\n".join(parts).strip()
 
     def copy_diagnostics(self):
-        clip_set_text(self.build_diagnostics())
+        system.clip_set_text(self.build_diagnostics())
         QtWidgets.QMessageBox.information(self, "Copied", "Diagnostics copied to clipboard.")
 
     def show_diagnostics(self):
@@ -916,16 +769,16 @@ class MainWindow(QtWidgets.QMainWindow):
 
     # -------- backend refresh --------
     def refresh_backends(self):
-        prof, err = powerprofiles_get_active()
+        prof, err = system.powerprofiles_get_active()
         self.backend_status.power_ok = (err == "")
         self.backend_status.power_err = err
         self.badge.setText(f"Mode: {prof}")
         self.highlight_mode_buttons(prof)
 
-        self.backend_status.nmcli_ok = bool(which("nmcli"))
+        self.backend_status.nmcli_ok = bool(system.which("nmcli"))
         self.backend_status.nmcli_err = "" if self.backend_status.nmcli_ok else "missing: nmcli"
 
-        self.backend_status.speedtest_ok = bool(which("speedtest") or which("speedtest-cli"))
+        self.backend_status.speedtest_ok = bool(system.which("speedtest") or system.which("speedtest-cli"))
         self.backend_status.speedtest_err = "" if self.backend_status.speedtest_ok else "missing: speedtest"
 
     # -------- network refresh --------
@@ -934,7 +787,7 @@ class MainWindow(QtWidgets.QMainWindow):
         dt = max(0.001, now - self._net_prev_ts)
 
         pernic = psutil.net_io_counters(pernic=True)
-        iface, ip = get_default_iface_and_ip()
+        iface, ip = system.get_default_iface_and_ip()
         self._net_iface, self._net_ip = iface, ip
 
         down_bps = None
@@ -949,7 +802,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self._net_prev = pernic
         self._net_prev_ts = now
 
-        ssid, signal, rate = nmcli_wifi_status()
+        ssid, signal, rate = system.nmcli_wifi_status()
 
         lines = []
         lines.append(f"Interface: {iface or '—'}")
@@ -979,9 +832,9 @@ class MainWindow(QtWidgets.QMainWindow):
         gpu_t = nvgpu if isinstance(nvgpu, (int, float)) else gpu_t_s
         ssd_t = nvme_t if isinstance(nvme_t, (int, float)) else ssd_t_s
 
-        cpu_state = state_for(cpu_t, CPU_WARM, CPU_HOT) or "Unknown"
-        gpu_state = state_for(gpu_t, GPU_WARM, GPU_HOT) or "Unknown"
-        ssd_state = state_for(ssd_t, SSD_WARM, SSD_HOT) or "Unknown"
+        cpu_state = system.state_for(cpu_t, CPU_WARM, CPU_HOT) or "Unknown"
+        gpu_state = system.state_for(gpu_t, GPU_WARM, GPU_HOT) or "Unknown"
+        ssd_state = system.state_for(ssd_t, SSD_WARM, SSD_HOT) or "Unknown"
 
         self.card_cpu.set_state(cpu_state)
         self.card_gpu.set_state(gpu_state)
@@ -1010,12 +863,12 @@ class MainWindow(QtWidgets.QMainWindow):
         # network
         down_bps, up_bps, net_info = self.refresh_network()
         if isinstance(down_bps, (int, float)) and isinstance(up_bps, (int, float)):
-            self.down_hist.append(bps_to_mbps(down_bps))
-            self.up_hist.append(bps_to_mbps(up_bps))
+            self.down_hist.append(system.bps_to_mbps(down_bps))
+            self.up_hist.append(system.bps_to_mbps(up_bps))
             self.card_net.set_state("normal")
             self.card_net.set_text(
-                f"↓ {bps_to_mbps(down_bps):.2f} Mbps",
-                f"↑ {bps_to_mbps(up_bps):.2f} Mbps\n{net_info}",
+                f"↓ {system.bps_to_mbps(down_bps):.2f} Mbps",
+                f"↑ {system.bps_to_mbps(up_bps):.2f} Mbps\n{net_info}",
             )
         else:
             self.card_net.set_state("unknown")
@@ -1024,18 +877,18 @@ class MainWindow(QtWidgets.QMainWindow):
         # system tile
         sys_lines = [
             f"Updated: {time.strftime('%H:%M:%S')}",
-            f"sensors: {'OK' if which('sensors') else 'missing'}",
-            f"nvme-cli: {'OK' if which('nvme') else 'missing'}",
-            f"nvidia: {'OK' if which('nvidia-smi') else 'missing'}",
-            f"nmcli: {'OK' if which('nmcli') else 'missing'}",
-            f"speedtest: {'OK' if (which('speedtest') or which('speedtest-cli')) else 'missing'}",
+            f"sensors: {'OK' if system.which('sensors') else 'missing'}",
+            f"nvme-cli: {'OK' if system.which('nvme') else 'missing'}",
+            f"nvidia: {'OK' if system.which('nvidia-smi') else 'missing'}",
+            f"nmcli: {'OK' if system.which('nmcli') else 'missing'}",
+            f"speedtest: {'OK' if (system.which('speedtest') or system.which('speedtest-cli')) else 'missing'}",
         ]
         self.card_sys.set_state("normal")
         self.card_sys.set_text("System", "\n".join(sys_lines))
 
         # overall
         present = [s for s in (cpu_state, gpu_state, ssd_state) if s in ("Normal", "Warm", "Hot")]
-        overall = worst_state(present) if present else "Normal"
+        overall = system.worst_state(present) if present else "Normal"
         self.status.setText(f"<b>Status:</b> {overall}")
 
         if overall == "Normal":
