@@ -9,6 +9,9 @@
 #   nmcli (NetworkManager) for Wi-Fi SSID/signal
 #   speedtest (Ookla CLI) OR speedtest-cli for speed testing
 
+import ui
+import sensors
+import system
 import os
 import sys
 import time
