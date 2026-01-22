@@ -560,7 +560,7 @@ class MainWindow(QtWidgets.QMainWindow):
         menu.addAction("Show diagnostics", self.show_diagnostics)
         menu.addAction("Copy diagnostics", self.copy_diagnostics)
         menu.addSeparator()
-        menu.addAction("Quit", QtWidgets.QApplication.quit)
+        menu.addAction("Quit", self.shutdown)
 
         self.tray.setContextMenu(menu)
         self.tray.show()
@@ -583,6 +583,13 @@ class MainWindow(QtWidgets.QMainWindow):
 
         self.refresh_backends()
         self.refresh_fast()
+
+    
+
+    def closeEvent(self, event):
+        self.shutdown()
+        event.accept()
+
 
     def closeEvent(self, e):
         e.ignore()
@@ -644,6 +651,9 @@ class MainWindow(QtWidgets.QMainWindow):
             QPlainTextEdit { background: transparent; color: rgba(0,0,0,0.75); }
             """
         )
+
+
+
 
     # -------- tray flashing + notifications --------
     def _toggle_flash(self, v: bool):
@@ -913,12 +923,42 @@ class MainWindow(QtWidgets.QMainWindow):
             else:
                 self._stop_flashing()
 
+    # === SHUTDOWN MARKER ===
+
+    def shutdown(self):
+        for name in ("flash_timer", "timer", "backend_timer"):
+            t = getattr(self, name, None)
+            if t is not None:
+                try:
+                    t.stop()
+                except Exception:
+                    pass
+
+        try:
+            if hasattr(self, "worker") and self.worker is not None:
+                if hasattr(self.worker, "stop"):
+                    self.worker.stop()
+        except Exception:
+            pass
+
+        try:
+            if hasattr(self, "thread") and self.thread is not None:
+                self.thread.quit()
+                self.thread.wait(1500)
+        except Exception:
+            pass
+
+        QtWidgets.QApplication.quit()
+
+    def closeEvent(self, event):
+        self.shutdown()
+        event.accept()
 
 def main():
     app = QtWidgets.QApplication(sys.argv)
     app.setApplicationName(APP_NAME)
     app.setApplicationDisplayName(APP_NAME)
-    app.setQuitOnLastWindowClosed(False)
+    app.setQuitOnLastWindowClosed(True)
 
     w = MainWindow()
     w.show()
@@ -931,3 +971,68 @@ def main():
 
 if __name__ == "__main__":
     main()
+
+
+    # === SHUTDOWN MARKER ===
+
+    def shutdown(self):
+        # Stop timers
+        for name in ("flash_timer", "timer", "backend_timer"):
+            t = getattr(self, name, None)
+            if t is not None:
+                try:
+                    t.stop()
+                except Exception:
+                    pass
+
+        # Stop worker (if any)
+        try:
+            if hasattr(self, "worker") and self.worker is not None:
+                if hasattr(self.worker, "stop"):
+                    self.worker.stop()
+        except Exception:
+            pass
+
+        # Stop thread (if any)
+        try:
+            if hasattr(self, "thread") and self.thread is not None:
+                self.thread.quit()
+                self.thread.wait(1500)
+        except Exception:
+            pass
+
+        # Tray icon cleanup (prevents ghost icons)
+        try:
+            tray = getattr(self, "tray", None)
+            if tray is not None:
+                tray.hide()
+                tray.setVisible(False)
+                tray.deleteLater()
+        except Exception:
+            pass
+
+        QtWidgets.QApplication.quit()
+
+
+    def closeEvent(self, event):
+        self.shutdown()
+        event.accept()
+
+def main():
+    app = QtWidgets.QApplication(sys.argv)
+    app.setApplicationName(APP_NAME)
+    app.setApplicationDisplayName(APP_NAME)
+    app.setQuitOnLastWindowClosed(True)
+
+    w = MainWindow()
+    w.show()
+
+    try:
+        sys.exit(app.exec())
+    except KeyboardInterrupt:
+        QtWidgets.QApplication.quit()
+
+
+if __name__ == "__main__":
+    main()
+
