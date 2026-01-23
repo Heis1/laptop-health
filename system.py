@@ -11,12 +11,15 @@ import socket
 
 import psutil
 
-# Optional Qt (only needed for clipboard)
+# Optional Qt (clipboard). Prefer PySide6 (matches main.py), fallback to PyQt6.
 try:
-    from PyQt6 import QtCore, QtWidgets  # type: ignore
+    from PySide6 import QtCore, QtWidgets  # type: ignore
 except Exception:
-    QtCore = None  # type: ignore
-    QtWidgets = None  # type: ignore
+    try:
+        from PyQt6 import QtCore, QtWidgets  # type: ignore
+    except Exception:
+        QtCore = None  # type: ignore
+        QtWidgets = None  # type: ignore
 
 # -------------------- helpers --------------------
 def which(cmd: str) -> str | None:
