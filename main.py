@@ -14,7 +14,8 @@ import sensors
 import system
 import os
 import sys
-if ".venv" not in sys.executable:
+
+if sys.prefix == sys.base_prefix:
     raise RuntimeError(
         "Virtual environment not active.\n"
         "Run: source .venv/bin/activate"
