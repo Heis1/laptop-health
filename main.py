@@ -707,6 +707,45 @@ class MainWindow(QtWidgets.QMainWindow):
         self.diag_dialog.raise_()
         self.diag_dialog.activateWindow()
 
+
+    # -------------------- helpers --------------------
+
+    def _read_total_interrupts(self) -> int | None:
+        """
+        Total interrupts across all CPUs from /proc/interrupts.
+        Proxy for wakeups/sec (always available, no root).
+        """
+        try:
+            total = 0
+            with open("/proc/interrupts", "r", encoding="utf-8", errors="ignore") as f:
+                for line in f:
+                    if ":" not in line:
+                        continue
+                    _left, right = line.split(":", 1)
+                    parts = right.strip().split()
+                    for p in parts:
+                        if p.isdigit():
+                            total += int(p)
+                        else:
+                            break
+            return total
+        except Exception:
+            return None
+
+    def _read_ctx_switches(self) -> int | None:
+        """
+        Context switches from /proc/stat (line: 'ctxt <num>').
+        """
+        try:
+            with open("/proc/stat", "r", encoding="utf-8", errors="ignore") as f:
+                for line in f:
+                    if line.startswith("ctxt "):
+                        return int(line.split()[1])
+            return None
+        except Exception:
+            return None
+
+
     # -------- backend refresh --------
     def refresh_backends(self):
         prof, err = system.powerprofiles_get_active()
