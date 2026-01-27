@@ -867,9 +867,33 @@ class MainWindow(QtWidgets.QMainWindow):
 
         if isinstance(cpu_t, (int, float)):
             self.cpu_hist.append(cpu_t)
-            self.card_cpu.set_text(f"{cpu_t:.0f}°C", f"CPU Util: {cpu_u:.0f}% • RAM Util: {mem_u:.0f}%")
+            extras = []
+            if isinstance(self._wakeups_per_s, (int, float)):
+                extras.append(f"Wakeups: {self._wakeups_per_s:,.0f}/s")
+            if isinstance(self._ctx_per_s, (int, float)):
+                extras.append(f"Ctxsw: {self._ctx_per_s:,.0f}/s")
+
+            extra_txt = (" • " + " • ".join(extras)) if extras else ""
+
+            self.card_cpu.set_text(
+                f"{cpu_t:.0f}°C",
+                f"CPU Util: {cpu_u:.0f}% • RAM Util: {mem_u:.0f}%{extra_txt}"
+            )
+
         else:
-            self.card_cpu.set_text("—", f"CPU Util: {cpu_u:.0f}% • RAM Util: {mem_u:.0f}%")
+            extras = []
+            if isinstance(self._wakeups_per_s, (int, float)):
+                extras.append(f"Wakeups: {self._wakeups_per_s:,.0f}/s")
+            if isinstance(self._ctx_per_s, (int, float)):
+                extras.append(f"Ctxsw: {self._ctx_per_s:,.0f}/s")
+
+            extra_txt = (" • " + " • ".join(extras)) if extras else ""
+
+            self.card_cpu.set_text(
+                "—",
+                f"CPU Util: {cpu_u:.0f}% • RAM Util: {mem_u:.0f}%{extra_txt}"
+            )
+
 
         if isinstance(gpu_t, (int, float)):
             self.gpu_hist.append(gpu_t)
