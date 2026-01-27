@@ -106,10 +106,16 @@ class Card(QtWidgets.QFrame):
         super().__init__()
         self.setObjectName("card")
         self.setProperty("state", "normal")
+        self.setProperty("wake", "none")
+        self.setProperty("dual", "0")
 
         self.title = QtWidgets.QLabel(f"<b>{title}</b>")
         self.value = QtWidgets.QLabel("—")
         self.value.setObjectName("value")
+
+        self.wake = QtWidgets.QLabel("")   # for wakeups/sec line (optional)
+        self.wake.setObjectName("wake")
+        self.wake.setVisible(False)
 
         self.sub = QtWidgets.QPlainTextEdit()
         self.sub.setReadOnly(True)
@@ -123,6 +129,7 @@ class Card(QtWidgets.QFrame):
         lay.setSpacing(8)
         lay.addWidget(self.title)
         lay.addWidget(self.value)
+        lay.addWidget(self.wake)
 
         self.spark = None
         if series is not None:
@@ -130,6 +137,38 @@ class Card(QtWidgets.QFrame):
             lay.addWidget(self.spark)
 
         lay.addWidget(self.sub, 1)
+
+    def set_text(self, value: str, sub: str):
+        self.value.setText(value)
+        self.sub.setPlainText(sub)
+        if self.spark:
+            self.spark.update()
+
+    def set_state(self, state: str):
+        s = (state or "unknown").lower()
+        if s not in ("normal", "warm", "hot", "unknown"):
+            s = "unknown"
+        self.setProperty("state", s)
+        self.style().unpolish(self)
+        self.style().polish(self)
+        self.update()
+
+    def set_wakeups(self, text: str, level: str | None):
+        if not text:
+            self.wake.setVisible(False)
+            self.wake.setText("")
+            self.wake.setProperty("wake", "none")
+        else:
+            self.wake.setVisible(True)
+            self.wake.setText(text)
+            lvl = (level or "none").lower()
+            if lvl not in ("normal", "warm", "hot", "none"):
+                lvl = "none"
+            self.wake.setProperty("wake", lvl)
+
+        self.wake.style().unpolish(self.wake)
+        self.wake.style().polish(self.wake)
+        self.wake.update()
 
     def set_text(self, value: str, sub: str):
         self.value.setText(value)
@@ -550,6 +589,14 @@ class MainWindow(QtWidgets.QMainWindow):
                 border-radius: 14px;
             }
             #value { font-size: 28px; font-weight: 800; color: rgba(0,0,0,0.90); }
+            #wake { font-size: 12px; font-weight: 700; color: rgba(0,0,0,0.55); }
+
+            #wake[wake="normal"] { color: rgba(16,185,129,0.95); }
+            #wake[wake="warm"]   { color: rgba(245,158,11,0.95); }
+            #wake[wake="hot"]    { color: rgba(239,68,68,0.95); }
+
+            /* If BOTH CPU temp AND wakeups are over threshold */
+            #card[dual="1"] { border: 3px solid rgba(124,58,237,0.85); }
 
             #card[state="normal"] { border: 1px solid rgba(0,0,0,0.10); }
             #card[state="warm"]   { border: 2px solid rgba(245,158,11,0.55); }
@@ -826,7 +873,6 @@ class MainWindow(QtWidgets.QMainWindow):
         self._ctx_prev = ctx_now
         self._wakeup_prev_ts = now
 
-
         temps_s, sensors_err = sensors.read_sensors()
         self.last_sensors_raw = temps_s.get("raw", "")
         cpu_t = temps_s.get("cpu")
@@ -859,6 +905,27 @@ class MainWindow(QtWidgets.QMainWindow):
             cpu_state = system.state_for(cpu_t, CPU_WARM, CPU_HOT) or "Unknown"
             gpu_state = system.state_for(gpu_t, GPU_WARM, GPU_HOT) or "Unknown"
             ssd_state = system.state_for(ssd_t, SSD_WARM, SSD_HOT) or "Unknown"
+
+        # wakeups label colour level (independent of temp thresholds)
+        wake_level = None
+        if isinstance(self._wakeups_per_s, (int, float)):
+            if self._wakeups_per_s >= 3000:
+                wake_level = "hot"
+            elif self._wakeups_per_s >= 1500:
+                wake_level = "warm"
+            else:
+                wake_level = "normal"
+
+        # set wakeups label on CPU card
+        if isinstance(self._wakeups_per_s, (int, float)):
+            self.card_cpu.set_wakeups(f"Wakeups: {self._wakeups_per_s:,.0f}/s", wake_level)
+        else:
+            self.card_cpu.set_wakeups("", None)
+
+        # dual trigger (temp + wakeups)
+        temp_trigger = cpu_state in ("Warm", "Hot")
+        wake_trigger = wake_level in ("warm", "hot")
+        self.card_cpu.setProperty("dual", "1" if (temp_trigger and wake_trigger) else "0")
 
         # cards: states first (colour), then text
         self.card_cpu.set_state(cpu_state)
