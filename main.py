@@ -596,12 +596,13 @@ class MainWindow(QtWidgets.QMainWindow):
             #wake[wake="hot"]    { color: rgba(239,68,68,0.95); }
 
             /* If BOTH CPU temp AND wakeups are over threshold */
-            #card[dual="1"] { border: 3px solid rgba(124,58,237,0.85); }
 
             #card[state="normal"] { border: 1px solid rgba(0,0,0,0.10); }
             #card[state="warm"]   { border: 2px solid rgba(245,158,11,0.55); }
             #card[state="hot"]    { border: 2px solid rgba(239,68,68,0.60); }
             #card[state="unknown"]{ border: 1px dashed rgba(0,0,0,0.18); }
+
+            #card[dual="1"] { border: 3px solid rgba(124,58,237,0.85); }
 
             #card[state="warm"]  #value { color: rgba(245,158,11,0.95); }
             #card[state="hot"]   #value { color: rgba(239,68,68,0.95); }
@@ -926,9 +927,21 @@ class MainWindow(QtWidgets.QMainWindow):
         temp_trigger = cpu_state in ("Warm", "Hot")
         wake_trigger = wake_level in ("warm", "hot")
         self.card_cpu.setProperty("dual", "1" if (temp_trigger and wake_trigger) else "0")
+        self.card_cpu.style().unpolish(self.card_cpu)
+        self.card_cpu.style().polish(self.card_cpu)
+        self.card_cpu.update()
 
         # cards: states first (colour), then text
+
         self.card_cpu.set_state(cpu_state)
+        temp_trigger = cpu_state in ("Warm", "Hot")
+        wake_trigger = wake_level in ("warm", "hot")
+        
+        self.card_cpu.setProperty("dual", "1" if (temp_trigger and wake_trigger) else "0")
+        self.card_cpu.style().unpolish(self.card_cpu)
+        self.card_cpu.style().polish(self.card_cpu)
+        self.card_cpu.update()
+
         self.card_gpu.set_state(gpu_state)
         self.card_ssd.set_state(ssd_state)
 
