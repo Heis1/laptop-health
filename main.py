@@ -141,11 +141,14 @@ class Card(QtWidgets.QFrame):
         s = (state or "unknown").lower()
         if s not in ("normal", "warm", "hot", "unknown"):
             s = "unknown"
-        self.setProperty("state", s)
-        self.style().unpolish(self)
-        self.style().polish(self)
-        self.update()
 
+        self.setProperty("state", s)
+
+        # Force a full repolish of this card AND its children so #value colour reverts reliably
+        for w in [self, self.title, self.value, self.sub]:
+            w.style().unpolish(w)
+            w.style().polish(w)
+            w.update()
 
 class DiagnosticsDialog(QtWidgets.QDialog):
     def __init__(self, parent=None):
