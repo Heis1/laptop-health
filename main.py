@@ -15,17 +15,15 @@ import system
 import os
 import sys
 
+# Must run inside venv
 if sys.prefix == sys.base_prefix:
     raise RuntimeError(
         "Virtual environment not active.\n"
         "Run: source .venv/bin/activate"
     )
+
 import time
-import shutil
-import subprocess
-import re
 import json
-import socket
 from collections import deque
 from dataclasses import dataclass
 
@@ -38,20 +36,15 @@ REFRESH_MS = 1000
 BACKEND_REFRESH_MS = 3000
 HIST_LEN = 120
 
+# CLI flag
+DEV_MODE = "--dev" in sys.argv
+
 # Temperature thresholds (status + visuals) — tune to taste
 CPU_WARM, CPU_HOT = 75, 85
 GPU_WARM, GPU_HOT = 70, 80
 SSD_WARM, SSD_HOT = 60, 70
 
-# Network "warning" thresholds (optional)
-DOWN_WARM_Mbps, DOWN_HOT_Mbps = None, None  # not used by default
-UP_WARM_Mbps, UP_HOT_Mbps = None, None      # not used by default
 
-
-# -------------------- helpers --------------------
-
-
-# -------------------- backends --------------------
 @dataclass
 class BackendStatus:
     sensors_ok: bool = False
@@ -66,12 +59,6 @@ class BackendStatus:
     nmcli_err: str = ""
     speedtest_ok: bool = False
     speedtest_err: str = ""
-
-# -------------------- power profiles --------------------
-
-
-# -------------------- network helpers --------------------
-
 
 
 # -------------------- UI widgets --------------------
@@ -129,7 +116,6 @@ class Card(QtWidgets.QFrame):
         self.sub.setFrameShape(QtWidgets.QFrame.NoFrame)
         self.sub.setVerticalScrollBarPolicy(QtCore.Qt.ScrollBarAsNeeded)
         self.sub.setHorizontalScrollBarPolicy(QtCore.Qt.ScrollBarAlwaysOff)
-        self.sub.setWordWrapMode(QtGui.QTextOption.WrapAtWordBoundaryOrAnywhere)
         self.sub.setMaximumHeight(160)
 
         lay = QtWidgets.QVBoxLayout(self)
@@ -169,7 +155,6 @@ class DiagnosticsDialog(QtWidgets.QDialog):
 
         self.box = QtWidgets.QPlainTextEdit()
         self.box.setReadOnly(True)
-        self.box.setWordWrapMode(QtGui.QTextOption.WrapAtWordBoundaryOrAnywhere)
 
         self.btn_copy = QtWidgets.QPushButton("Copy to clipboard")
         self.btn_close = QtWidgets.QPushButton("Close")
@@ -201,12 +186,11 @@ class SpeedTestWorker(QtCore.QObject):
 
     @QtCore.Slot()
     def run(self):
-        # Detect what "speedtest" actually is on this system.
         if system.which("speedtest"):
             rc_v, out_v, err_v = system.run_cmd(["speedtest", "--version"], timeout_s=5)
             ver = (out_v or err_v or "").lower()
 
-            # ---- speedtest-cli (python) ----
+            # speedtest-cli (python)
             if "speedtest-cli" in ver or "sivel" in ver:
                 rc, out, err = system.run_cmd(["speedtest", "--json"], timeout_s=180)
                 if rc != 0 or not out:
@@ -217,9 +201,9 @@ class SpeedTestWorker(QtCore.QObject):
                     return
                 try:
                     data = json.loads(out)
-                    down_bps = data.get("download")  # bits/s
-                    up_bps = data.get("upload")      # bits/s
-                    ping = data.get("ping")          # ms
+                    down_bps = data.get("download")
+                    up_bps = data.get("upload")
+                    ping = data.get("ping")
                     server = (data.get("server") or {}).get("sponsor") or (data.get("server") or {}).get("name")
                     isp = data.get("client", {}).get("isp")
 
@@ -244,8 +228,7 @@ class SpeedTestWorker(QtCore.QObject):
                     self.finished.emit(False, f"speedtest-cli JSON parse error: {e}\n\nRaw:\n{out[:3000]}")
                     return
 
-            # ---- Ookla CLI (real speedtest) ----
-            # If you ever install Ookla later, this branch handles it.
+            # Ookla CLI
             candidates = [
                 ["speedtest", "--accept-license", "--accept-gdpr", "-f", "json"],
                 ["speedtest", "--accept-license", "--accept-gdpr", "--format=json"],
@@ -294,7 +277,6 @@ class SpeedTestWorker(QtCore.QObject):
             )
             return
 
-        # explicit fallback if only speedtest-cli is installed as speedtest-cli binary
         if system.which("speedtest-cli"):
             rc, out, err = system.run_cmd(["speedtest-cli", "--json"], timeout_s=180)
             if rc != 0 or not out:
@@ -323,12 +305,18 @@ class SpeedTestWorker(QtCore.QObject):
 
         self.finished.emit(False, "No speedtest tool found.")
 
+
 # -------------------- Main window --------------------
 class MainWindow(QtWidgets.QMainWindow):
     def __init__(self):
         super().__init__()
         self.setWindowTitle(APP_NAME)
         self.resize(1040, 740)
+
+        # dev overrides (None = disabled)
+        self.dev_override_cpu: float | None = None
+        self.dev_override_gpu: float | None = None
+        self.dev_override_ssd: float | None = None
 
         self.cpu_hist = deque(maxlen=HIST_LEN)
         self.gpu_hist = deque(maxlen=HIST_LEN)
@@ -395,12 +383,21 @@ class MainWindow(QtWidgets.QMainWindow):
         self.btn_show.setObjectName("copybtn")
         self.btn_show.clicked.connect(self.show_diagnostics)
 
+        # Dev tools button (only if --dev)
+        self.btn_dev = None
+        if DEV_MODE:
+            self.btn_dev = QtWidgets.QPushButton("Dev tools")
+            self.btn_dev.setObjectName("copybtn")
+            self.btn_dev.clicked.connect(self.open_dev_tools)
+
         top_l.addWidget(self.btn_quiet)
         top_l.addWidget(self.btn_bal)
         top_l.addWidget(self.btn_perf)
         top_l.addWidget(self.btn_speed)
         top_l.addWidget(self.btn_copy)
         top_l.addWidget(self.btn_show)
+        if self.btn_dev:
+            top_l.addWidget(self.btn_dev)
 
         # --- cards ---
         body = QtWidgets.QWidget()
@@ -411,7 +408,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self.card_cpu = Card("CPU", self.cpu_hist)
         self.card_gpu = Card("GPU", self.gpu_hist)
         self.card_ssd = Card("SSD / NVMe", self.ssd_hist)
-        self.card_net = Card("Network", self.down_hist)  # sparkline shows download; upload in sub
+        self.card_net = Card("Network", self.down_hist)
         self.card_sys = Card("System")
 
         grid.addWidget(self.card_cpu, 0, 0)
@@ -437,7 +434,10 @@ class MainWindow(QtWidgets.QMainWindow):
         self.icon_ok = QtGui.QIcon.fromTheme("utilities-system-monitor")
         if self.icon_ok.isNull():
             self.icon_ok = self.style().standardIcon(QtWidgets.QStyle.StandardPixmap.SP_ComputerIcon)
-        self.icon_warn = QtGui.QIcon.fromTheme("dialog-warning") or self.icon_ok
+
+        self.icon_warn = QtGui.QIcon.fromTheme("dialog-warning")
+        if self.icon_warn.isNull():
+            self.icon_warn = self.icon_ok
 
         self.tray = QtWidgets.QSystemTrayIcon(self.icon_ok, self)
         menu = QtWidgets.QMenu()
@@ -454,6 +454,11 @@ class MainWindow(QtWidgets.QMainWindow):
         act_flash.setCheckable(True)
         act_flash.setChecked(True)
         act_flash.toggled.connect(self._toggle_flash)
+
+        if DEV_MODE:
+            menu.addSeparator()
+            menu.addAction("Dev tools", self.open_dev_tools)
+            menu.addAction("Clear dev overrides", self.clear_dev_overrides)
 
         menu.addSeparator()
         menu.addAction("Speed test", self.run_speed_test)
@@ -484,17 +489,13 @@ class MainWindow(QtWidgets.QMainWindow):
         self.refresh_backends()
         self.refresh_fast()
 
-    
-
-    def closeEvent(self, event):
-        self.shutdown()
-        event.accept()
-
-
+    # -------- window close behaviour --------
     def closeEvent(self, e):
+        # hide to tray
         e.ignore()
         self.hide()
 
+    # -------- styles --------
     def apply_style(self):
         self.setStyleSheet(
             """
@@ -552,8 +553,34 @@ class MainWindow(QtWidgets.QMainWindow):
             """
         )
 
+    # -------- dev tools --------
+    def open_dev_tools(self):
+        # Single dialog controls all overrides; Cancel = do nothing
+        v, ok = QtWidgets.QInputDialog.getDouble(
+            self,
+            "Dev override",
+            "Set CPU/GPU/SSD temp override (°C). Use -1 to clear.",
+            100.0,   # value
+            -1.0,    # min
+            120.0,   # max
+            1        # decimals
+        )
 
+        if not ok:
+            return
 
+        if v < 0:
+            self.clear_dev_overrides()
+            return
+
+        self.dev_override_cpu = v
+        self.dev_override_gpu = v
+        self.dev_override_ssd = v
+
+    def clear_dev_overrides(self):
+        self.dev_override_cpu = None
+        self.dev_override_gpu = None
+        self.dev_override_ssd = None
 
     # -------- tray flashing + notifications --------
     def _toggle_flash(self, v: bool):
@@ -729,7 +756,6 @@ class MainWindow(QtWidgets.QMainWindow):
         cpu_u = psutil.cpu_percent(interval=None)
         mem_u = psutil.virtual_memory().percent
 
-        # temps
         temps_s, sensors_err = sensors.read_sensors()
         self.last_sensors_raw = temps_s.get("raw", "")
         cpu_t = temps_s.get("cpu")
@@ -746,6 +772,24 @@ class MainWindow(QtWidgets.QMainWindow):
         gpu_state = system.state_for(gpu_t, GPU_WARM, GPU_HOT) or "Unknown"
         ssd_state = system.state_for(ssd_t, SSD_WARM, SSD_HOT) or "Unknown"
 
+        # dev overrides: must happen BEFORE set_state/set_text
+        if DEV_MODE:
+            if self.dev_override_cpu is not None:
+                cpu_t = float(self.dev_override_cpu)
+            if self.dev_override_gpu is not None:
+                gpu_t = float(self.dev_override_gpu)
+            if self.dev_override_ssd is not None:
+                ssd_t = float(self.dev_override_ssd)
+
+            temps_s["cpu"] = cpu_t
+            temps_s["gpu"] = gpu_t
+            temps_s["ssd"] = ssd_t
+
+            cpu_state = system.state_for(cpu_t, CPU_WARM, CPU_HOT) or "Unknown"
+            gpu_state = system.state_for(gpu_t, GPU_WARM, GPU_HOT) or "Unknown"
+            ssd_state = system.state_for(ssd_t, SSD_WARM, SSD_HOT) or "Unknown"
+
+        # cards: states first (colour), then text
         self.card_cpu.set_state(cpu_state)
         self.card_gpu.set_state(gpu_state)
         self.card_ssd.set_state(ssd_state)
@@ -803,14 +847,10 @@ class MainWindow(QtWidgets.QMainWindow):
 
         if overall == "Normal":
             self.banner.setVisible(False)
-
-            # RESET visual state so colours revert properly
             self.banner.setProperty("state", "normal")
             self.banner.style().unpolish(self.banner)
             self.banner.style().polish(self.banner)
-
             self._stop_flashing()
-           
         else:
             self.banner.setVisible(True)
             self.banner.setProperty("state", overall.lower())
@@ -830,9 +870,9 @@ class MainWindow(QtWidgets.QMainWindow):
             else:
                 self._stop_flashing()
 
-    # === SHUTDOWN MARKER ===
-
+    # -------- shutdown --------
     def shutdown(self):
+        # stop timers
         for name in ("flash_timer", "timer", "backend_timer"):
             t = getattr(self, name, None)
             if t is not None:
@@ -841,74 +881,22 @@ class MainWindow(QtWidgets.QMainWindow):
                 except Exception:
                     pass
 
+        # stop worker/thread if running
         try:
-            if hasattr(self, "worker") and self.worker is not None:
+            if hasattr(self, "worker") and getattr(self, "worker", None) is not None:
                 if hasattr(self.worker, "stop"):
                     self.worker.stop()
         except Exception:
             pass
 
         try:
-            if hasattr(self, "thread") and self.thread is not None:
+            if hasattr(self, "thread") and getattr(self, "thread", None) is not None:
                 self.thread.quit()
                 self.thread.wait(1500)
         except Exception:
             pass
 
-        QtWidgets.QApplication.quit()
-
-    def closeEvent(self, event):
-        self.shutdown()
-        event.accept()
-
-def main():
-    app = QtWidgets.QApplication(sys.argv)
-    app.setApplicationName(APP_NAME)
-    app.setApplicationDisplayName(APP_NAME)
-    app.setQuitOnLastWindowClosed(True)
-
-    w = MainWindow()
-    w.show()
-
-    try:
-        sys.exit(app.exec())
-    except KeyboardInterrupt:
-        QtWidgets.QApplication.quit()
-
-
-if __name__ == "__main__":
-    main()
-
-
-    # === SHUTDOWN MARKER ===
-
-    def shutdown(self):
-        # Stop timers
-        for name in ("flash_timer", "timer", "backend_timer"):
-            t = getattr(self, name, None)
-            if t is not None:
-                try:
-                    t.stop()
-                except Exception:
-                    pass
-
-        # Stop worker (if any)
-        try:
-            if hasattr(self, "worker") and self.worker is not None:
-                if hasattr(self.worker, "stop"):
-                    self.worker.stop()
-        except Exception:
-            pass
-
-        # Stop thread (if any)
-        try:
-            if hasattr(self, "thread") and self.thread is not None:
-                self.thread.quit()
-                self.thread.wait(1500)
-        except Exception:
-            pass
-
-        # Tray icon cleanup (prevents ghost icons)
+        # tray cleanup (prevents ghost icons)
         try:
             tray = getattr(self, "tray", None)
             if tray is not None:
@@ -921,10 +909,6 @@ if __name__ == "__main__":
         QtWidgets.QApplication.quit()
 
 
-    def closeEvent(self, event):
-        self.shutdown()
-        event.accept()
-
 def main():
     app = QtWidgets.QApplication(sys.argv)
     app.setApplicationName(APP_NAME)
@@ -942,4 +926,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
