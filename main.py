@@ -805,6 +805,28 @@ class MainWindow(QtWidgets.QMainWindow):
         cpu_u = psutil.cpu_percent(interval=None)
         mem_u = psutil.virtual_memory().percent
 
+        # wakeups/sec (proxy via interrupts delta) + context switches/sec
+        now = time.time()
+        dt = max(0.001, now - getattr(self, "_wakeup_prev_ts", now))
+
+        irq_now = self._read_total_interrupts()
+        ctx_now = self._read_ctx_switches()
+
+        if isinstance(irq_now, int) and isinstance(self._irq_prev, int):
+            self._wakeups_per_s = (irq_now - self._irq_prev) / dt
+        else:
+            self._wakeups_per_s = None
+
+        if isinstance(ctx_now, int) and isinstance(self._ctx_prev, int):
+            self._ctx_per_s = (ctx_now - self._ctx_prev) / dt
+        else:
+            self._ctx_per_s = None
+
+        self._irq_prev = irq_now
+        self._ctx_prev = ctx_now
+        self._wakeup_prev_ts = now
+
+
         temps_s, sensors_err = sensors.read_sensors()
         self.last_sensors_raw = temps_s.get("raw", "")
         cpu_t = temps_s.get("cpu")
