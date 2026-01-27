@@ -345,6 +345,13 @@ class MainWindow(QtWidgets.QMainWindow):
         self._flashing = False
         self._flash_tick = False
 
+        # wakeups proxies (computed later in refresh_fast)
+        self._irq_prev = self._read_total_interrupts()
+        self._ctx_prev = self._read_ctx_switches()
+        self._wakeup_prev_ts = time.time()
+        self._wakeups_per_s = None
+        self._ctx_per_s = None
+
         # --- top bar ---
         top = QtWidgets.QWidget()
         top_l = QtWidgets.QHBoxLayout(top)
