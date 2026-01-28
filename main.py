@@ -950,7 +950,7 @@ class MainWindow(QtWidgets.QMainWindow):
             extras = []
             if isinstance(self._wakeups_per_s, (int, float)):
                 extras.append(f"Wakeups: {self._wakeups_per_s:,.0f}/s")
-            if isinstance(self._ctx_per_s, (int, float)):
+            if DEV_MODE and isinstance(self._ctx_per_s, (int, float)):
                 extras.append(f"Ctxsw: {self._ctx_per_s:,.0f}/s")
 
             extra_txt = (" • " + " • ".join(extras)) if extras else ""
@@ -964,7 +964,7 @@ class MainWindow(QtWidgets.QMainWindow):
             extras = []
             if isinstance(self._wakeups_per_s, (int, float)):
                 extras.append(f"Wakeups: {self._wakeups_per_s:,.0f}/s")
-            if isinstance(self._ctx_per_s, (int, float)):
+            if DEV_MODE and isinstance(self._ctx_per_s, (int, float)):
                 extras.append(f"Ctxsw: {self._ctx_per_s:,.0f}/s")
 
             extra_txt = (" • " + " • ".join(extras)) if extras else ""
