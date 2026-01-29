@@ -45,6 +45,296 @@ GPU_WARM, GPU_HOT = 70, 80
 SSD_WARM, SSD_HOT = 60, 70
 
 
+import os
+import re
+import shutil
+import subprocess
+import tempfile
+from dataclasses import dataclass
+from typing import List, Optional
+
+from PySide6 import QtCore, QtWidgets
+
+
+@dataclass
+class WakeupRow:
+    wakeups_per_s: float
+    category: str
+    description: str
+
+
+def _which(cmd: str) -> Optional[str]:
+    return shutil.which(cmd)
+
+def _run_elevated_powertop_report(seconds: int, csv_path: str, html_path: str) -> None:
+    """
+    Run powertop to generate reports.
+    Prefer pkexec (GUI prompt). Fallback to sudo.
+    """
+    powertop = _which("powertop")
+    if not powertop:
+        raise RuntimeError("powertop not found. Install it (Ubuntu/Mint): sudo apt install powertop")
+
+    args = [
+        powertop,
+        f"--time={seconds}",
+        f"--csv={csv_path}",
+        f"--html={html_path}",
+    ]
+
+    pkexec = _which("pkexec")
+    if pkexec:
+        p = subprocess.run([pkexec] + args, capture_output=True, text=True)
+        if p.returncode != 0:
+            raise RuntimeError(f"powertop failed via pkexec:\n{p.stderr.strip() or p.stdout.strip()}")
+        return
+
+    sudo = _which("sudo")
+    if sudo:
+        p = subprocess.run([sudo] + args, capture_output=True, text=True)
+        if p.returncode != 0:
+            raise RuntimeError(f"powertop failed via sudo:\n{p.stderr.strip() or p.stdout.strip()}")
+        return
+
+    raise RuntimeError("Neither pkexec nor sudo is available to elevate privileges.")
+
+def parse_powertop_wakeups_from_html(html_text: str) -> List[WakeupRow]:
+    """
+    Robust parser:
+    - scans tables
+    - picks one whose headers mention wakeups
+    - chooses columns by header names (not hardcoded indices)
+    - if a TD looks blank, falls back to title="" (powertop often stores text there)
+    """
+    def unescape_basic(s: str) -> str:
+        return (s.replace("&nbsp;", " ")
+                 .replace("&amp;", "&")
+                 .replace("&lt;", "<")
+                 .replace("&gt;", ">")
+                 .replace("&#39;", "'")
+                 .replace("&quot;", '"'))
+
+    def clean_td(td_html: str) -> str:
+        # 1) text content
+        txt = re.sub(r"<.*?>", "", td_html, flags=re.DOTALL)
+        txt = unescape_basic(txt)
+        txt = re.sub(r"\s+", " ", txt).strip()
+
+        # 2) fallback: title="..." if text is empty
+        if not txt:
+            m = re.search(r'title="([^"]+)"', td_html, flags=re.IGNORECASE)
+            if m:
+                txt = unescape_basic(m.group(1)).strip()
+        return txt
+
+    tables = re.findall(r"<table.*?>.*?</table>", html_text, flags=re.IGNORECASE | re.DOTALL)
+    if not tables:
+        return []
+
+    for table_html in tables:
+        ths_raw = re.findall(r"<th.*?>(.*?)</th>", table_html, flags=re.IGNORECASE | re.DOTALL)
+        headers = [clean_td(h).lower() for h in ths_raw]
+
+        if headers and not any("wakeup" in h for h in headers):
+            continue
+
+        # Choose indices by header keywords
+        def find_idx(keys: tuple[str, ...]) -> int | None:
+            for i, h in enumerate(headers):
+                if any(k in h for k in keys):
+                    return i
+            return None
+
+        wake_idx = find_idx(("wakeup", "wakeups", "wakeups/s", "events/s", "/s"))
+        desc_idx = find_idx(("description", "details", "source", "device", "process", "name", "event"))
+        cat_idx  = find_idx(("category", "type", "class"))
+
+        rows: List[WakeupRow] = []
+
+        for tr in re.findall(r"<tr.*?>.*?</tr>", table_html, flags=re.IGNORECASE | re.DOTALL):
+            cells_raw = re.findall(r"<t[dh].*?>(.*?)</t[dh]>", tr, flags=re.IGNORECASE | re.DOTALL)
+            if len(cells_raw) < 2:
+                continue
+
+            cols = [clean_td(c) for c in cells_raw]
+
+            # Determine wakeups/sec
+            w = None
+            if wake_idx is not None and wake_idx < len(cols):
+                c = cols[wake_idx].replace(",", "").strip()
+                try:
+                    w = float(c)
+                except ValueError:
+                    w = None
+
+            if w is None:
+                # fallback: first float anywhere in row
+                for c in cols:
+                    c2 = c.replace(",", "").strip()
+                    try:
+                        w = float(c2)
+                        break
+                    except ValueError:
+                        continue
+            if w is None:
+                continue
+
+            # Description
+            desc = ""
+            if desc_idx is not None and desc_idx < len(cols):
+                desc = cols[desc_idx]
+            if not desc:
+                # fallback: best non-numeric column
+                for c in cols:
+                    if c and not re.fullmatch(r"[0-9.,]+", c.strip()):
+                        desc = c
+                        break
+
+            # Category
+            category = "Wakeups"
+            if cat_idx is not None and cat_idx < len(cols) and cols[cat_idx]:
+                category = cols[cat_idx]
+            else:
+                # fallback: if there are 3+ cols, use the next textual column
+                for c in cols:
+                    if c and c != desc and not re.fullmatch(r"[0-9.,]+", c.strip()):
+                        category = c
+                        break
+
+            rows.append(WakeupRow(wakeups_per_s=w, category=category, description=desc))
+
+        rows.sort(key=lambda r: r.wakeups_per_s, reverse=True)
+        return rows  # first matching wakeup table wins
+
+    return []
+
+def parse_powertop_wakeups_from_csv(csv_text: str) -> List[WakeupRow]:
+    """
+    Parse wakeup rows from powertop CSV output.
+    """
+    rows: List[WakeupRow] = []
+
+    for line in csv_text.splitlines():
+        line = line.strip()
+        if not line or line.startswith("#"):
+            continue
+
+        fields = re.findall(r'"([^"]*)"', line)
+        if len(fields) < 3:
+            continue
+
+        first = fields[0].strip()
+        try:
+            w = float(first)
+        except ValueError:
+            continue
+
+        category = fields[1].strip()
+        desc = fields[2].strip()
+
+        cat_lower = category.lower()
+        if any(k in cat_lower for k in ("wakeup", "timer", "interrupt", "process", "device", "kernel")):
+            rows.append(WakeupRow(wakeups_per_s=w, category=category, description=desc))
+
+    rows.sort(key=lambda r: r.wakeups_per_s, reverse=True)
+
+    deduped: List[WakeupRow] = []
+    seen = set()
+    for r in rows:
+        key = (r.category, r.description)
+        if key in seen:
+            continue
+        seen.add(key)
+        deduped.append(r)
+
+    return deduped
+
+class WakeupInvestigatorWorker(QtCore.QThread):
+    finished_ok = QtCore.Signal(object)  # emits List[WakeupRow]
+    finished_err = QtCore.Signal(str)
+
+    def __init__(self, seconds: int = 10, parent=None):
+        super().__init__(parent)
+        self.seconds = seconds
+
+    def run(self) -> None:
+        try:
+            with tempfile.TemporaryDirectory(prefix="laptophealth_") as td:
+                csv_path = os.path.join(td, "powertop.csv")
+                html_path = os.path.join(td, "powertop.html")
+
+                _run_elevated_powertop_report(self.seconds, csv_path, html_path)
+
+                csv_text = ""
+                html_text = ""
+
+                if os.path.exists(csv_path):
+                    with open(csv_path, "r", encoding="utf-8", errors="replace") as f:
+                        csv_text = f.read()
+
+                if os.path.exists(html_path):
+                    with open(html_path, "r", encoding="utf-8", errors="replace") as f:
+                        html_text = f.read()
+
+            rows = []
+            if csv_text:
+                rows = parse_powertop_wakeups_from_csv(csv_text)
+
+            if not rows and html_text:
+                rows = parse_powertop_wakeups_from_html(html_text)
+
+            if not rows:
+                self.finished_err.emit(
+                    "Powertop ran, but no wakeup rows were found.\n"
+                    "Your powertop build may not export CSV wakeups.\n"
+                    "HTML parsing was attempted."
+                )
+                return
+
+            self.finished_ok.emit(rows)
+
+        except Exception as e:
+            self.finished_err.emit(str(e))
+
+
+class WakeupsDialog(QtWidgets.QDialog): 
+
+    def __init__(self, rows: List[WakeupRow], parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("Investigate wakeups (powertop)")
+        self.resize(900, 520)
+
+        layout = QtWidgets.QVBoxLayout(self)
+
+        info = QtWidgets.QLabel(
+            "Sorted by wakeups/sec (higher = worse). Root privileges are required for reliable data."
+        )
+        layout.addWidget(info)
+
+        table = QtWidgets.QTableWidget(self)
+        table.setColumnCount(3)
+        table.setHorizontalHeaderLabels(["Wakeups/sec", "Category", "Description"])
+        table.setRowCount(len(rows))
+        table.setSortingEnabled(False)
+        table.verticalHeader().setVisible(False)
+        table.setEditTriggers(QtWidgets.QAbstractItemView.NoEditTriggers)
+        table.setSelectionBehavior(QtWidgets.QAbstractItemView.SelectRows)
+        table.setSelectionMode(QtWidgets.QAbstractItemView.SingleSelection)
+
+        for i, r in enumerate(rows):
+            table.setItem(i, 0, QtWidgets.QTableWidgetItem(f"{r.wakeups_per_s:.2f}"))
+            table.setItem(i, 1, QtWidgets.QTableWidgetItem(r.category))
+            table.setItem(i, 2, QtWidgets.QTableWidgetItem(r.description))
+
+        table.resizeColumnsToContents()
+        table.horizontalHeader().setStretchLastSection(True)
+        layout.addWidget(table)
+
+        btns = QtWidgets.QDialogButtonBox(QtWidgets.QDialogButtonBox.Close)
+        btns.rejected.connect(self.reject)
+        layout.addWidget(btns)
+
+
 @dataclass
 class BackendStatus:
     sensors_ok: bool = False
@@ -432,6 +722,11 @@ class MainWindow(QtWidgets.QMainWindow):
         self.btn_show.setObjectName("copybtn")
         self.btn_show.clicked.connect(self.show_diagnostics)
 
+        self.btn_wakeups = QtWidgets.QPushButton("Investigate wakeups")
+        self.btn_wakeups.setObjectName("copybtn")  # reuse your style if you want
+        self.btn_wakeups.clicked.connect(self.investigate_wakeups)
+
+
         # Dev tools button (only if --dev)
         self.btn_dev = None
         if DEV_MODE:
@@ -447,6 +742,7 @@ class MainWindow(QtWidgets.QMainWindow):
         top_l.addWidget(self.btn_show)
         if self.btn_dev:
             top_l.addWidget(self.btn_dev)
+        top_l.addWidget(self.btn_wakeups)
 
         # --- cards ---
         body = QtWidgets.QWidget()
@@ -540,7 +836,12 @@ class MainWindow(QtWidgets.QMainWindow):
 
     # -------- window close behaviour --------
     def closeEvent(self, e):
-        # hide to tray
+        # allow real quit when requested
+        if getattr(self, "_force_quit", False):
+            e.accept()
+            return
+
+        # otherwise hide to tray
         e.ignore()
         self.hide()
 
@@ -800,6 +1101,33 @@ class MainWindow(QtWidgets.QMainWindow):
         except Exception:
             return None
 
+    def investigate_wakeups(self):
+        self.btn_wakeups.setEnabled(False)
+
+        # Optional: a tiny progress dialog (simple + effective)
+        prog = QtWidgets.QProgressDialog("Running powertop…", None, 0, 0, self)
+        prog.setWindowTitle("Investigate wakeups")
+        prog.setCancelButton(None)
+        prog.setMinimumDuration(0)
+        prog.show()
+
+        self._wakeup_worker = WakeupInvestigatorWorker(seconds=10, parent=self)
+
+        def ok(rows):
+            prog.close()
+            self.btn_wakeups.setEnabled(True)
+            dlg = WakeupsDialog(rows, parent=self)
+            dlg.exec()
+
+        def err(msg):
+            prog.close()
+            self.btn_wakeups.setEnabled(True)
+            QtWidgets.QMessageBox.critical(self, "Wakeups failed", msg)
+
+        self._wakeup_worker.finished_ok.connect(ok)
+        self._wakeup_worker.finished_err.connect(err)
+        self._wakeup_worker.start()
+
 
     # -------- backend refresh --------
     def refresh_backends(self):
@@ -1055,6 +1383,10 @@ class MainWindow(QtWidgets.QMainWindow):
                     t.stop()
                 except Exception:
                     pass
+
+        self._force_quit = True
+        self.close()
+        QtWidgets.QApplication.quit()
 
         # stop worker/thread if running
         try:
