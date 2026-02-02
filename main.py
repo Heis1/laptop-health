@@ -495,9 +495,9 @@ class DiagnosticsDialog(QtWidgets.QDialog):
         self.btn_close.clicked.connect(self.close)
 
         btns = QtWidgets.QHBoxLayout()
-        btns.addWidget(self.btn_copy)
+#       btns.addWidget(self.btn_copy)
         btns.addStretch(1)
-        btns.addWidget(self.btn_close)
+#       btns.addWidget(self.btn_close)
 
         lay = QtWidgets.QVBoxLayout(self)
         lay.addWidget(self.box, 1)
@@ -699,9 +699,11 @@ class MainWindow(QtWidgets.QMainWindow):
         top_l.addSpacing(8)
         top_l.addWidget(self.banner, 1)
 
+        # -------- mode buttons --------
         self.btn_quiet = QtWidgets.QPushButton("Quiet")
         self.btn_bal = QtWidgets.QPushButton("Balanced")
         self.btn_perf = QtWidgets.QPushButton("Performance")
+
         for b in (self.btn_quiet, self.btn_bal, self.btn_perf):
             b.setCheckable(True)
             b.setObjectName("modebtn")
@@ -709,6 +711,59 @@ class MainWindow(QtWidgets.QMainWindow):
         self.btn_quiet.clicked.connect(lambda: self.set_mode("Quiet"))
         self.btn_bal.clicked.connect(lambda: self.set_mode("Balanced"))
         self.btn_perf.clicked.connect(lambda: self.set_mode("Performance"))
+
+        # -------- action buttons --------
+        self.btn_speed = QtWidgets.QPushButton("Speed test")
+        self.btn_speed.setObjectName("copybtn")
+        self.btn_speed.clicked.connect(self.run_speed_test)
+
+        self.btn_copy = QtWidgets.QPushButton("Copy diagnostics")
+        self.btn_copy.setObjectName("copybtn")
+        self.btn_copy.clicked.connect(self.copy_diagnostics)
+
+        self.btn_show = QtWidgets.QPushButton("Show diagnostics")
+        self.btn_show.setObjectName("copybtn")
+        self.btn_show.clicked.connect(self.show_diagnostics)
+
+        self.btn_wakeups = QtWidgets.QPushButton("Investigate wakeups")
+        self.btn_wakeups.setObjectName("copybtn")
+        self.btn_wakeups.clicked.connect(self.investigate_wakeups)
+
+        self.btn_theme = QtWidgets.QPushButton("Dark")
+        self.btn_theme.setCheckable(True)
+        self.btn_theme.setObjectName("themebtn")
+        self.btn_theme.toggled.connect(self.set_theme)
+
+        self.btn_exit = QtWidgets.QPushButton("Exit")
+        self.btn_exit.setObjectName("exitbtn")
+        self.btn_exit.clicked.connect(self.shutdown)
+
+        # -------- actions layout --------
+        actions = QtWidgets.QWidget()
+        actions_l = QtWidgets.QHBoxLayout(actions)
+        actions_l.setContentsMargins(0, 0, 0, 0)
+        actions_l.setSpacing(8)
+
+        actions_l.addWidget(self.btn_quiet)
+        actions_l.addWidget(self.btn_bal)
+        actions_l.addWidget(self.btn_perf)
+
+        actions_l.addSpacing(10)
+
+        actions_l.addWidget(self.btn_speed)
+        actions_l.addWidget(self.btn_copy)
+        actions_l.addWidget(self.btn_show)
+        actions_l.addWidget(self.btn_wakeups)
+        actions_l.addWidget(self.btn_theme)
+        actions_l.addWidget(self.btn_exit)
+
+        top_l.addWidget(actions)
+
+        top_l.addStretch(1)
+
+        self.btn_exit = QtWidgets.QPushButton("Exit")
+        self.btn_exit.setObjectName("exitbtn")
+        self.btn_exit.clicked.connect(self.shutdown)
 
         self.btn_speed = QtWidgets.QPushButton("Speed test")
         self.btn_speed.setObjectName("copybtn")
@@ -737,13 +792,7 @@ class MainWindow(QtWidgets.QMainWindow):
         top_l.addWidget(self.btn_quiet)
         top_l.addWidget(self.btn_bal)
         top_l.addWidget(self.btn_perf)
-        top_l.addWidget(self.btn_speed)
-        top_l.addWidget(self.btn_copy)
-        top_l.addWidget(self.btn_show)
-        if self.btn_dev:
-            top_l.addWidget(self.btn_dev)
-        top_l.addWidget(self.btn_wakeups)
-
+       
         # --- cards ---
         body = QtWidgets.QWidget()
         grid = QtWidgets.QGridLayout(body)
@@ -834,6 +883,11 @@ class MainWindow(QtWidgets.QMainWindow):
         self.refresh_backends()
         self.refresh_fast()
 
+        # dark mode test
+        self._theme_dark = True
+        self.apply_style()
+
+
     # -------- window close behaviour --------
     def closeEvent(self, e):
         # allow real quit when requested
@@ -847,70 +901,124 @@ class MainWindow(QtWidgets.QMainWindow):
 
     # -------- styles --------
     def apply_style(self):
-        self.setStyleSheet(
-            """
-            QMainWindow { background: #f5f5f4; }
-            QLabel { color: rgba(0,0,0,0.84); }
+        dark = getattr(self, "_theme_dark", False)
 
-            #badge {
-                padding: 4px 10px;
-                border-radius: 999px;
-                background: rgba(0,0,0,0.06);
-            }
+        base_qss = """
+QMainWindow { background: #f5f5f4; }
+QLabel { color: rgba(0,0,0,0.84); }
+QPlainTextEdit { background: transparent; color: rgba(0,0,0,0.75); }
 
-            #banner {
-                padding: 6px 10px;
-                border-radius: 12px;
-                background: rgba(0,0,0,0.06);
-                color: rgba(0,0,0,0.85);
-            }
-            #banner[state="warm"] { background: rgba(245,158,11,0.18); border: 1px solid rgba(245,158,11,0.45); }
-            #banner[state="hot"]  { background: rgba(239,68,68,0.18);  border: 1px solid rgba(239,68,68,0.50); }
+#modebtn {
+    padding: 6px 12px;
+    border-radius: 999px;
+    background: rgba(0,0,0,0.06);
+    border: 1px solid rgba(0,0,0,0.08);
+}
+#modebtn:checked {
+    background: rgba(20,184,166,0.22);
+    border: 1px solid rgba(20,184,166,0.55);
+}
 
-            #modebtn {
-                padding: 6px 12px;
-                border-radius: 999px;
-                background: rgba(0,0,0,0.06);
-                border: 1px solid rgba(0,0,0,0.08);
-            }
-            #modebtn:checked {
-                background: rgba(20,184,166,0.22);
-                border: 1px solid rgba(20,184,166,0.55);
-            }
-            #copybtn {
-                padding: 6px 12px;
-                border-radius: 999px;
-                background: rgba(2,132,199,0.12);
-                border: 1px solid rgba(2,132,199,0.25);
-            }
+#copybtn {
+    padding: 6px 12px;
+    border-radius: 999px;
+    background: rgba(2,132,199,0.12);
+    border: 1px solid rgba(2,132,199,0.25);
+    color: rgba(0,0,0,0.84);
+}
 
-            #card {
-                background: #ffffff;
-                border: 1px solid rgba(0,0,0,0.10);
-                border-radius: 14px;
-            }
-            #value { font-size: 28px; font-weight: 800; color: rgba(0,0,0,0.90); }
-            #wake { font-size: 12px; font-weight: 700; color: rgba(0,0,0,0.55); }
+#themebtn {
+    padding: 6px 12px;
+    border-radius: 999px;
+    background: rgba(0,0,0,0.06);
+    border: 1px solid rgba(0,0,0,0.08);
+}
+#themebtn:hover { background: rgba(0,0,0,0.08); }
+#themebtn:checked { background: rgba(0,0,0,0.10); }
 
-            #wake[wake="normal"] { color: rgba(16,185,129,0.95); }
-            #wake[wake="warm"]   { color: rgba(245,158,11,0.95); }
-            #wake[wake="hot"]    { color: rgba(239,68,68,0.95); }
+#exitbtn {
+    padding: 6px 12px;
+    border-radius: 999px;
+    background: rgba(239,68,68,0.12);
+    border: 1px solid rgba(239,68,68,0.28);
+    color: rgba(0,0,0,0.84);
+}
+#exitbtn:hover { background: rgba(239,68,68,0.16); }
 
-            /* If BOTH CPU temp AND wakeups are over threshold */
+#card {
+    background: #ffffff;
+    border: 1px solid rgba(0,0,0,0.10);
+    border-radius: 14px;
+}
+#value { font-size: 28px; font-weight: 800; color: rgba(0,0,0,0.90); }
+#wake  { font-size: 12px; font-weight: 700; color: rgba(0,0,0,0.55); }
 
-            #card[state="normal"] { border: 1px solid rgba(0,0,0,0.10); }
-            #card[state="warm"]   { border: 2px solid rgba(245,158,11,0.55); }
-            #card[state="hot"]    { border: 2px solid rgba(239,68,68,0.60); }
-            #card[state="unknown"]{ border: 1px dashed rgba(0,0,0,0.18); }
+#wake[wake="normal"] { color: rgba(16,185,129,0.95); }
+#wake[wake="warm"]   { color: rgba(245,158,11,0.95); }
+#wake[wake="hot"]    { color: rgba(239,68,68,0.95); }
 
-            #card[dual="1"] { border: 3px solid rgba(124,58,237,0.85); }
+#card[state="normal"] { border: 1px solid rgba(0,0,0,0.10); }
+#card[state="warm"]   { border: 2px solid rgba(245,158,11,0.55); }
+#card[state="hot"]    { border: 2px solid rgba(239,68,68,0.60); }
+#card[state="unknown"]{ border: 1px dashed rgba(0,0,0,0.18); }
 
-            #card[state="warm"]  #value { color: rgba(245,158,11,0.95); }
-            #card[state="hot"]   #value { color: rgba(239,68,68,0.95); }
+#card[dual="1"] { border: 3px solid rgba(124,58,237,0.85); }
 
-            QPlainTextEdit { background: transparent; color: rgba(0,0,0,0.75); }
-            """
-        )
+#card[state="warm"]  #value { color: rgba(245,158,11,0.95); }
+#card[state="hot"]   #value { color: rgba(239,68,68,0.95); }
+"""
+
+        dark_qss = """
+QMainWindow { background: #0b0f14; }
+QLabel { color: rgba(255,255,255,0.86); }
+QPlainTextEdit { background: transparent; color: rgba(255,255,255,0.78); }
+
+#card {
+    background: #0f1720;
+    border: 1px solid rgba(255,255,255,0.10);
+}
+
+#value { color: rgba(255,255,255,0.92); }
+#wake  { color: rgba(255,255,255,0.60); }
+
+#copybtn {
+    background: rgba(2,132,199,0.18);
+    border: 1px solid rgba(2,132,199,0.30);
+    color: rgba(255,255,255,0.88);
+}
+
+#themebtn {
+    background: rgba(255,255,255,0.08);
+    border: 1px solid rgba(255,255,255,0.12);
+    color: rgba(255,255,255,0.88);
+}
+#themebtn:hover { background: rgba(255,255,255,0.10); }
+#themebtn:checked { background: rgba(255,255,255,0.14); }
+
+#exitbtn {
+    background: rgba(239,68,68,0.18);
+    border: 1px solid rgba(239,68,68,0.35);
+    color: rgba(255,255,255,0.88);
+}
+
+#modebtn {
+    background: rgba(255,255,255,0.10);
+    border: 1px solid rgba(255,255,255,0.14);
+    color: rgba(255,255,255,0.88);
+}
+#modebtn:checked {
+    background: rgba(20,184,166,0.30);
+    border: 1px solid rgba(20,184,166,0.65);
+}
+
+"""
+
+        self.setStyleSheet(base_qss + (dark_qss if dark else ""))
+
+    def set_theme(self, dark: bool):
+        self._theme_dark = bool(dark)
+        self.btn_theme.setText("Light" if dark else "Dark")
+        self.apply_style()
 
     # -------- dev tools --------
     def open_dev_tools(self):
