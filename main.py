@@ -972,6 +972,14 @@ QPlainTextEdit { background: transparent; color: rgba(0,0,0,0.75); }
 QMainWindow { background: #0b0f14; }
 QLabel { color: rgba(255,255,255,0.86); }
 QPlainTextEdit { background: transparent; color: rgba(255,255,255,0.78); }
+QDialog { background: #0b0f14; }
+
+QPlainTextEdit {
+    background: #0f1720;
+    color: rgba(255,255,255,0.88);
+    border: 1px solid rgba(255,255,255,0.10);
+    border-radius: 12px;
+}
 
 #card {
     background: #0f1720;
