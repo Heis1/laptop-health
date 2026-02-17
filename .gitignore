@@ -19,3 +19,23 @@ Thumbs.db
 
 # Environment variables / secrets
 .env
+
+# Python venvs
+.venv/
+build-venv/
+
+# PyInstaller
+build/
+dist/
+*.spec
+
+# Debian packaging artifacts
+pkg/
+*.deb
+
+# Python cache
+__pycache__/
+*.pyc
+
+# OS junk
+.DS_Store
