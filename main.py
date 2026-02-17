@@ -15,12 +15,16 @@ import system
 import os
 import sys
 
-# Must run inside venv
-if sys.prefix == sys.base_prefix:
-    raise RuntimeError(
-        "Virtual environment not active.\n"
-        "Run: source .venv/bin/activate"
-    )
+# Must run inside venv (dev only). Allow PyInstaller builds.
+def _running_frozen() -> bool:
+    return getattr(sys, "frozen", False)
+
+if not _running_frozen():
+    if sys.prefix == sys.base_prefix:
+        raise RuntimeError(
+            "Virtual environment not active.\n"
+            "Run: source .venv/bin/activate"
+        )
 
 import time
 import json
