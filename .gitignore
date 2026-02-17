@@ -39,3 +39,13 @@ __pycache__/
 
 # OS junk
 .DS_Store
+
+.venv/
+build-venv/
+build/
+dist/
+pkg/
+*.deb
+*.spec
+__pycache__/
+*.pyc
