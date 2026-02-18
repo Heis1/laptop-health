@@ -27,8 +27,8 @@ def _ensure_venv() -> None:
 def main(argv: list[str] | None = None) -> int:
     _ensure_venv()
     import ui  # local module
-
     return ui.main(argv or sys.argv)
+
 
 if __name__ == "__main__":
     raise SystemExit(main())
