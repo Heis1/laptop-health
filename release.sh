@@ -4,18 +4,33 @@ set -euo pipefail
 # ===== Config (edit if you want) =====
 APP_NAME="laptop-health"
 DISPLAY_NAME="Laptop Health"
-
-# App version (git tag). Default: latest tag like v0.4.0 -> 0.4.0
-VERSION="${VERSION:-$(git describe --tags --abbrev=0 | sed 's/^v//')}"
-# Debian revision bump: 0.4.0-3 style
-REV="${REV:-3}"
-
 ARCH="${ARCH:-amd64}"
+
+# App version (from git tag). Accepts env override VERSION=...
+# Uses latest tag like v0.4.0 -> 0.4.0. Falls back to 0.0.0 if no tags exist.
+VERSION="${VERSION:-$(
+  git describe --tags --abbrev=0 2>/dev/null | sed 's/^v//' || echo 0.0.0
+)}"
+
+# Debian revision bump. Accepts env override REV=...
+# If not set, auto-increments based on existing pkg artifacts for this VERSION.
+if [[ -n "${REV:-}" ]]; then
+  : # user provided REV
+else
+  last_rev="$(
+    ls -1 "pkg/${APP_NAME}_${VERSION}-"*_"${ARCH}.deb" 2>/dev/null \
+      | sed -n "s/.*_${VERSION}-\([0-9]\+\)_${ARCH}\.deb/\1/p" \
+      | sort -n \
+      | tail -n 1
+  )"
+  REV="${last_rev:-0}"
+  REV="$((REV + 1))"
+fi
 
 # PyInstaller spec file
 SPEC_FILE="${SPEC_FILE:-laptop-health.spec}"
 
-# Icon path (must be a PNG). Default: your generated icon in ~/Downloads.
+# Icon path (must be a PNG). Default: icon committed in repo.
 ICON_SRC="${ICON_SRC:-assets/laptop-health.png}"
 
 # Build venv dir
@@ -28,6 +43,15 @@ DEPS="${DEPS:-lm-sensors, powertop, nvme-cli, power-profiles-daemon, network-man
 DIST_DIR="dist/${APP_NAME}"
 PKG_ROOT="pkg/${APP_NAME}_${VERSION}-${REV}_${ARCH}"
 DEB_OUT="pkg/${APP_NAME}_${VERSION}-${REV}_${ARCH}.deb"
+
+# ===== Flags =====
+INSTALL_AFTER=0
+for arg in "$@"; do
+  case "$arg" in
+    --install) INSTALL_AFTER=1 ;;
+    *) ;;
+  esac
+done
 
 # ===== Helpers =====
 die() { echo "ERROR: $*" >&2; exit 1; }
@@ -53,6 +77,13 @@ fi
 # shellcheck disable=SC1090
 source "${BUILD_VENV}/bin/activate"
 
+# Remove Qt TIFF plugin from build environment to avoid libtiff.so.5 warning
+TIFF_PLUGIN="${VIRTUAL_ENV}/lib/python3.12/site-packages/PySide6/Qt/plugins/imageformats/libqtiff.so"
+if [[ -f "${TIFF_PLUGIN}" ]]; then
+  echo "[i] Removing Qt TIFF plugin from build environment"
+  rm -f "${TIFF_PLUGIN}"
+fi
+
 # Ensure build deps exist in venv
 python -c "import PySide6, psutil" >/dev/null 2>&1 || {
   echo "[i] Installing Python build deps into venv ..."
@@ -68,6 +99,9 @@ rm -rf build dist
 pyinstaller "${SPEC_FILE}"
 
 [[ -x "${DIST_DIR}/${APP_NAME}" ]] || die "Built binary not found: ${DIST_DIR}/${APP_NAME}"
+
+# Belt-and-braces: also remove TIFF plugin from built bundle if present
+rm -f "${DIST_DIR}/_internal/PySide6/Qt/plugins/imageformats/libqtiff.so" 2>/dev/null || true
 
 # ===== Stage Debian package layout =====
 echo "[i] Staging deb layout at ${PKG_ROOT} ..."
@@ -146,3 +180,10 @@ echo "  sudo apt install ./${DEB_OUT}"
 echo
 echo "Run:"
 echo "  ${APP_NAME}"
+
+if [[ "${INSTALL_AFTER}" -eq 1 ]]; then
+  echo
+  echo "[i] Installing ${DEB_OUT} ..."
+  sudo apt install "./${DEB_OUT}"
+  echo "[✓] Installed. Run: ${APP_NAME}"
+fi
