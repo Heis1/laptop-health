@@ -90,8 +90,7 @@ def _run_elevated_powertop_report(seconds: int, csv_path: str, html_path: str) -
         rc, out, err = system.run_privileged("pkexec", args, timeout_s=max(20.0, float(seconds) + 15.0))
         if rc != 0:
             msg = (err or out or f"rc={rc}").strip()
-            raise RuntimeError(f"powertop failed via pkexec:
-{msg}")
+            raise RuntimeError(f"powertop failed via pkexec:\n{msg}")
         return
 
     # Fallback to sudo (terminal prompt)
@@ -99,8 +98,7 @@ def _run_elevated_powertop_report(seconds: int, csv_path: str, html_path: str) -
         rc, out, err = system.run_privileged("sudo", args, timeout_s=max(20.0, float(seconds) + 15.0))
         if rc != 0:
             msg = (err or out or f"rc={rc}").strip()
-            raise RuntimeError(f"powertop failed via sudo:
-{msg}")
+            raise RuntimeError(f"powertop failed via sudo:\n{msg}")
         return
 
     raise RuntimeError("Neither pkexec nor sudo is available to elevate privileges.")
@@ -434,20 +432,6 @@ class Card(QtWidgets.QFrame):
 
         lay.addWidget(self.sub, 1)
 
-    def set_text(self, value: str, sub: str):
-        self.value.setText(value)
-        self.sub.setPlainText(sub)
-        if self.spark:
-            self.spark.update()
-
-    def set_state(self, state: str):
-        s = (state or "unknown").lower()
-        if s not in ("normal", "warm", "hot", "unknown"):
-            s = "unknown"
-        self.setProperty("state", s)
-        self.style().unpolish(self)
-        self.style().polish(self)
-        self.update()
 
     def set_wakeups(self, text: str, level: str | None):
         if not text:
@@ -740,6 +724,14 @@ class MainWindow(QtWidgets.QMainWindow):
         self.btn_theme.setObjectName("themebtn")
         self.btn_theme.toggled.connect(self.set_theme)
 
+        # Dev tools button (only if --dev)
+        self.btn_dev = None
+        if DEV_MODE:
+            self.btn_dev = QtWidgets.QPushButton("Dev tools")
+            self.btn_dev.setObjectName("copybtn")
+            self.btn_dev.clicked.connect(self.open_dev_tools)
+
+
         self.btn_exit = QtWidgets.QPushButton("Exit")
         self.btn_exit.setObjectName("exitbtn")
         self.btn_exit.clicked.connect(self.shutdown)
@@ -761,44 +753,14 @@ class MainWindow(QtWidgets.QMainWindow):
         actions_l.addWidget(self.btn_show)
         actions_l.addWidget(self.btn_wakeups)
         actions_l.addWidget(self.btn_theme)
+        if self.btn_dev is not None:
+            actions_l.addWidget(self.btn_dev)
         actions_l.addWidget(self.btn_exit)
 
         top_l.addWidget(actions)
 
         top_l.addStretch(1)
 
-        self.btn_exit = QtWidgets.QPushButton("Exit")
-        self.btn_exit.setObjectName("exitbtn")
-        self.btn_exit.clicked.connect(self.shutdown)
-
-        self.btn_speed = QtWidgets.QPushButton("Speed test")
-        self.btn_speed.setObjectName("copybtn")
-        self.btn_speed.clicked.connect(self.run_speed_test)
-
-        self.btn_copy = QtWidgets.QPushButton("Copy diagnostics")
-        self.btn_copy.setObjectName("copybtn")
-        self.btn_copy.clicked.connect(self.copy_diagnostics)
-
-        self.btn_show = QtWidgets.QPushButton("Show diagnostics")
-        self.btn_show.setObjectName("copybtn")
-        self.btn_show.clicked.connect(self.show_diagnostics)
-
-        self.btn_wakeups = QtWidgets.QPushButton("Investigate wakeups")
-        self.btn_wakeups.setObjectName("copybtn")  # reuse your style if you want
-        self.btn_wakeups.clicked.connect(self.investigate_wakeups)
-
-
-        # Dev tools button (only if --dev)
-        self.btn_dev = None
-        if DEV_MODE:
-            self.btn_dev = QtWidgets.QPushButton("Dev tools")
-            self.btn_dev.setObjectName("copybtn")
-            self.btn_dev.clicked.connect(self.open_dev_tools)
-
-        top_l.addWidget(self.btn_quiet)
-        top_l.addWidget(self.btn_bal)
-        top_l.addWidget(self.btn_perf)
-       
         # --- cards ---
         body = QtWidgets.QWidget()
         grid = QtWidgets.QGridLayout(body)
