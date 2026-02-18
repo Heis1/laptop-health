@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import re
 import system
+import os
 
 # -------------------- sensors parsing --------------------
 def parse_sensors_text(raw: str) -> dict:
@@ -22,7 +23,8 @@ def parse_sensors_text(raw: str) -> dict:
             current_chip = line.strip().lower()
             continue
 
-        m = re.search(r"([A-Za-z0-9 _/\-\.]+):\s*([+\-]?\d+(\.\d+)?)\s*°C", line)
+        m = re.search(r"([A-Za-z0-9 _/\-\.]+):\s*([+\-]?\d+(?:\.\d+)?)\s*(?:°C|C)\b", line)
+
         if not m:
             continue
 
