@@ -176,7 +176,7 @@ chmod 644 "${DEB_OUT}"
 echo "[✓] Built: ${DEB_OUT}"
 echo
 echo "Install:"
-echo "  sudo apt install ./${DEB_OUT}"
+echo "  sudo dpkg -i ./${DEB_OUT} || sudo apt -f install -y"
 echo
 echo "Run:"
 echo "  ${APP_NAME}"
