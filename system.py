@@ -5,9 +5,11 @@ Move general system/stat collection code here in small commits.
 
 from __future__ import annotations
 
+import os
 import shutil
-import subprocess
 import socket
+import subprocess
+from typing import Optional
 
 import psutil
 
@@ -21,27 +23,113 @@ except Exception:
         QtCore = None  # type: ignore
         QtWidgets = None  # type: ignore
 
+
 # -------------------- helpers --------------------
 def which(cmd: str) -> str | None:
+    """Return full path to cmd if found on PATH; else None."""
     return shutil.which(cmd)
 
 
-def run_cmd(args: list[str], timeout_s: int = 4) -> tuple[int, str, str]:
+def run_cmd(
+    args: list[str],
+    timeout_s: float = 4,
+    *,
+    env: Optional[dict[str, str]] = None,
+    cwd: Optional[str] = None,
+    max_chars: int = 200_000,
+) -> tuple[int, str, str]:
+    """
+    Safe subprocess runner:
+      - list[str] args only (rejects strings)
+      - resolves executable via shutil.which
+      - shell=False always
+      - timeout always
+      - stable LANG/LC_ALL for parseable output
+      - output truncation to avoid UI/log choking
+    Returns: (returncode, stdout, stderr)
+    """
     try:
-        cp = subprocess.run(args, capture_output=True, text=True, timeout=timeout_s)
-        return cp.returncode, (cp.stdout or "").strip(), (cp.stderr or "").strip()
+        timeout_s = max(0.1, float(timeout_s))
+
+        # Hard fail if someone accidentally passes a string command
+        if not isinstance(args, list) or not args or any(not isinstance(x, str) for x in args):
+            return 2, "", "Invalid args (must be non-empty list[str])"
+
+        # Resolve executable (prevents PATH ambiguity + clearer errors)
+        exe = shutil.which(args[0])
+        if exe is None:
+            return 127, "", f"Command not found: {args[0]}"
+        args = [exe] + args[1:]
+
+        merged_env = os.environ.copy()
+        merged_env.update({"LANG": "C", "LC_ALL": "C"})
+        if env:
+            merged_env.update(env)
+
+        cp = subprocess.run(
+            args,
+            capture_output=True,
+            text=True,
+            timeout=timeout_s,
+            cwd=cwd,
+            env=merged_env,
+            shell=False,
+        )
+
+        # Keep whitespace mostly intact; only remove trailing newline(s)
+        out = (cp.stdout or "").rstrip("\n")
+        err = (cp.stderr or "").rstrip("\n")
+
+        # Prevent huge output from choking UI/log copy
+        if len(out) > max_chars:
+            out = out[:max_chars] + "\n…(truncated)…"
+        if len(err) > max_chars:
+            err = err[:max_chars] + "\n…(truncated)…"
+
+        return cp.returncode, out, err
+
     except subprocess.TimeoutExpired:
         return 124, "", f"timeout after {timeout_s}s"
     except Exception as e:
         return 1, "", f"{type(e).__name__}: {e}"
 
+
+def run_privileged(
+    tool: str,  # "pkexec" or "sudo"
+    argv: list[str],  # command to run as root (argv[0] is the target executable)
+    *,
+    timeout_s: float = 10.0,
+) -> tuple[int, str, str]:
+    """
+    Privileged runner that wraps run_cmd() and keeps behavior consistent.
+    Returns: (returncode, stdout, stderr)
+    """
+    if not isinstance(argv, list) or not argv or any(not isinstance(x, str) for x in argv):
+        return 2, "", "Invalid argv (must be non-empty list[str])"
+
+    tool_path = shutil.which(tool)
+    if tool_path is None:
+        return 127, "", f"{tool} not found"
+
+    target = shutil.which(argv[0])
+    if target is None:
+        return 127, "", f"Command not found: {argv[0]}"
+
+    full = [tool_path, target] + argv[1:]
+
+    # Keep env minimal and predictable for privileged calls
+    env = {"LANG": "C", "LC_ALL": "C"}
+    return run_cmd(full, timeout_s=timeout_s, env=env)
+
+
 def clip_set_text(text: str):
     if QtWidgets is None or QtCore is None:
-        raise RuntimeError("Qt clipboard unavailable (PyQt6 not installed/importable in system.py)")
+        raise RuntimeError("Qt clipboard unavailable (PySide6/PyQt6 not installed/importable in system.py)")
     cb = QtWidgets.QApplication.clipboard()
     md = QtCore.QMimeData()
     md.setText(text)
     cb.setMimeData(md)
+
 
 def worst_state(states: list[str]) -> str:
     if "Hot" in states:
@@ -78,6 +166,7 @@ def human_bps(bps: float) -> str:
 def bps_to_mbps(bps_bytes_per_s: float) -> float:
     # bytes/s -> megabits/s
     return (bps_bytes_per_s * 8.0) / 1_000_000.0
+
 
 # -------------------- power profiles --------------------
 def powerprofiles_get_active() -> tuple[str, str]:
@@ -139,6 +228,7 @@ def get_default_iface_and_ip() -> tuple[str | None, str | None]:
 
     return None, None
 
+
 def nmcli_wifi_status() -> tuple[str | None, int | None, str | None]:
     """
     Returns (ssid, signal_percent, rate) for active wifi if nmcli exists.
@@ -151,7 +241,7 @@ def nmcli_wifi_status() -> tuple[str | None, int | None, str | None]:
         return None, None, None
 
     # 1) Try ACTIVE format (yes:)
-    rc, out, err = run_cmd(["nmcli", "-t", "-f", "ACTIVE,SSID,SIGNAL,RATE", "dev", "wifi"], timeout_s=3)
+    rc, out, _err = run_cmd(["nmcli", "-t", "-f", "ACTIVE,SSID,SIGNAL,RATE", "dev", "wifi"], timeout_s=3)
     if rc == 0 and out:
         for line in out.splitlines():
             if line.startswith("yes:"):
@@ -166,7 +256,7 @@ def nmcli_wifi_status() -> tuple[str | None, int | None, str | None]:
                     return ssid, signal, rate
 
     # 2) Fallback: IN-USE format (*:)
-    rc, out, err = run_cmd(["nmcli", "-t", "-f", "IN-USE,SSID,SIGNAL,RATE", "dev", "wifi"], timeout_s=3)
+    rc, out, _err = run_cmd(["nmcli", "-t", "-f", "IN-USE,SSID,SIGNAL,RATE", "dev", "wifi"], timeout_s=3)
     if rc == 0 and out:
         for line in out.splitlines():
             # "*:Private:76:270 Mbit/s"
