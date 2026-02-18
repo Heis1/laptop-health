@@ -52,7 +52,6 @@ SSD_WARM, SSD_HOT = 60, 70
 import os
 import re
 import shutil
-import subprocess
 import tempfile
 from dataclasses import dataclass
 from typing import List, Optional
@@ -86,22 +85,25 @@ def _run_elevated_powertop_report(seconds: int, csv_path: str, html_path: str) -
         f"--html={html_path}",
     ]
 
-    pkexec = _which("pkexec")
-    if pkexec:
-        p = subprocess.run([pkexec] + args, capture_output=True, text=True)
-        if p.returncode != 0:
-            raise RuntimeError(f"powertop failed via pkexec:\n{p.stderr.strip() or p.stdout.strip()}")
+    # Prefer pkexec (GUI prompt)
+    if system.which("pkexec"):
+        rc, out, err = system.run_privileged("pkexec", args, timeout_s=max(20.0, float(seconds) + 15.0))
+        if rc != 0:
+            msg = (err or out or f"rc={rc}").strip()
+            raise RuntimeError(f"powertop failed via pkexec:
+{msg}")
         return
 
-    sudo = _which("sudo")
-    if sudo:
-        p = subprocess.run([sudo] + args, capture_output=True, text=True)
-        if p.returncode != 0:
-            raise RuntimeError(f"powertop failed via sudo:\n{p.stderr.strip() or p.stdout.strip()}")
+    # Fallback to sudo (terminal prompt)
+    if system.which("sudo"):
+        rc, out, err = system.run_privileged("sudo", args, timeout_s=max(20.0, float(seconds) + 15.0))
+        if rc != 0:
+            msg = (err or out or f"rc={rc}").strip()
+            raise RuntimeError(f"powertop failed via sudo:
+{msg}")
         return
 
     raise RuntimeError("Neither pkexec nor sudo is available to elevate privileges.")
-
 def parse_powertop_wakeups_from_html(html_text: str) -> List[WakeupRow]:
     """
     Robust parser:
