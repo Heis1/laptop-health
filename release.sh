@@ -1,5 +1,14 @@
 #!/usr/bin/env bash
 set -euo pipefail
+NO_BUILD=false
+
+for arg in "$@"; do
+    case "$arg" in
+        --no-build)
+            NO_BUILD=true
+            ;;
+    esac
+done
 
 # ===== Config (edit if you want) =====
 APP_NAME="laptop-health"
@@ -94,9 +103,13 @@ python -c "import PySide6, psutil" >/dev/null 2>&1 || {
 have pyinstaller || die "pyinstaller not available in venv (pip install pyinstaller)"
 
 # ===== Build PyInstaller bundle =====
-echo "[i] Building PyInstaller bundle..."
-rm -rf build dist
-pyinstaller "${SPEC_FILE}"
+if [ "$NO_BUILD" = false ]; then
+    echo "[i] Building PyInstaller bundle..."
+    rm -rf build dist
+    pyinstaller "$SPEC"
+else
+    echo "[i] Skipping PyInstaller build (--no-build)"
+fi
 
 [[ -x "${DIST_DIR}/${APP_NAME}" ]] || die "Built binary not found: ${DIST_DIR}/${APP_NAME}"
 
