@@ -184,6 +184,6 @@ echo "  ${APP_NAME}"
 if [[ "${INSTALL_AFTER}" -eq 1 ]]; then
   echo
   echo "[i] Installing ${DEB_OUT} ..."
-  sudo apt install "./${DEB_OUT}"
+  sudo dpkg -i "./${DEB_OUT}" || sudo apt -f install -y
   echo "[✓] Installed. Run: ${APP_NAME}"
 fi
