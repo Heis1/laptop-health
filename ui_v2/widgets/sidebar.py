@@ -1,59 +1,43 @@
 from __future__ import annotations
-from PySide6.QtWidgets import QFrame, QHBoxLayout, QLabel, QPushButton, QStyle, QVBoxLayout
+
+from PySide6.QtWidgets import QFrame, QVBoxLayout, QPushButton, QLabel, QStyle
+
 
 class Sidebar(QFrame):
+    """
+    Compatible with ui_v2/app.py:
+      - exposes self.buttons dict with keys app.py expects
+      - includes icons
+    """
     def __init__(self):
         super().__init__()
         self.setObjectName("Sidebar")
-        self.setFixedWidth(260)
+        self.buttons: dict[str, QPushButton] = {}
 
         v = QVBoxLayout(self)
         v.setContentsMargins(16, 16, 16, 16)
-        v.setSpacing(10)
+        v.setSpacing(12)
 
-        hdr = QHBoxLayout()
-        logo = QLabel()
-        logo.setPixmap(self.style().standardIcon(QStyle.SP_DesktopIcon).pixmap(28, 28))
         title = QLabel("Laptop Health")
         title.setObjectName("AppTitle")
-        hdr.addWidget(logo)
-        hdr.addWidget(title)
-        hdr.addStretch(1)
-        v.addLayout(hdr)
+        v.addWidget(title)
 
-        v.addSpacing(6)
+        def mk(key: str, text: str, icon_enum) -> QPushButton:
+            btn = QPushButton(text)
+            btn.setObjectName("NavBtn")
+            btn.setIcon(self.style().standardIcon(icon_enum))
+            self.buttons[key] = btn
+            v.addWidget(btn)
+            return btn
 
-        self.buttons: dict[str, QPushButton] = {}
-        for key, label in [
-            ("dashboard", "System Overview"),
-            ("power", "Power & Thermal"),
-            ("storage", "Disk & Storage"),
-            ("network", "Network & Internet"),
-            ("updates", "Pending Updates"),
-            ("dev", "Dev Tools"),
-        ]:
-            b = QPushButton(label)
-            b.setObjectName("NavBtn")
-            b.setCheckable(True)
-            self.buttons[key] = b
-            v.addWidget(b)
+        mk("dashboard", "Overview", QStyle.SP_DesktopIcon)
+        mk("power", "Power & Thermal", QStyle.SP_ComputerIcon)
+        mk("network", "Network", QStyle.SP_DriveNetIcon)
+        mk("storage", "Storage", QStyle.SP_DriveHDIcon)
+        mk("updates", "Updates", QStyle.SP_MessageBoxWarning)
+
+        dev_btn = mk("dev", "Dev Tools", QStyle.SP_FileDialogDetailedView)
+        # Alias for any newer code paths
+        self.buttons["devtools"] = dev_btn
 
         v.addStretch(1)
-
-        for label in ["Logs", "Settings"]:
-            b = QPushButton(label)
-            b.setObjectName("NavBtnSecondary")
-            v.addWidget(b)
-
-        self.set_active("dashboard")
-
-    def set_active(self, key: str) -> None:
-        for k, b in self.buttons.items():
-            b.setChecked(False)
-            b.setProperty("active", "")
-            b.style().unpolish(b); b.style().polish(b)
-        if key in self.buttons:
-            b = self.buttons[key]
-            b.setChecked(True)
-            b.setProperty("active", "1")
-            b.style().unpolish(b); b.style().polish(b)
