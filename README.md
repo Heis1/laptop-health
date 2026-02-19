@@ -26,13 +26,14 @@ Download the latest `.deb` from the **Releases** page.
 Install using:
 
 ```bash
-sudo apt install ./laptop-health_0.1.2_amd64.deb
+sudo apt install ./laptop-health_0.4.0-9_amd64.deb
 ```
 
 If installing manually:
 
 ```bash
-sudo dpkg -i laptop-health_0.1.2_amd64.deb
+sudo dpkg -i laptop-health_0.4.0-9_amd64.deb
+
 sudo apt -f install
 ```
 
