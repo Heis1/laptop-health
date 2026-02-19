@@ -6,8 +6,6 @@ from PySide6.QtWidgets import (
 
 from ui_v2.theme import qss
 from ui_v2.widgets.sidebar import Sidebar
-from ui_v2.widgets.inspector import Inspector
-
 from ui_v2.pages.dashboard import DashboardPage
 from ui_v2.pages.power import PowerPage
 from ui_v2.pages.network import NetworkPage
@@ -19,7 +17,17 @@ from ui_v2.pages.devtools import DevToolsPage
 class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
+
+        # Modern UI font
+        from PySide6.QtGui import QFont
+        app_font = QFont("Segoe UI")
+        app_font.setPointSize(10)
+        self.setFont(app_font)
         self.setWindowTitle("Laptop Health (UI v2)")
+        # Keep the dashboard tight (prevents wide dead space)
+        self.resize(1180, 780)
+        self.setMinimumWidth(1080)
+        self.setMaximumWidth(1280)
         self.resize(1280, 820)
 
         root = QWidget()
@@ -75,7 +83,6 @@ class MainWindow(QMainWindow):
             self.stack.addWidget(self.pages[k])
         c.addWidget(self.stack, 1)
 
-        c.addWidget(Inspector())
 
         self.sidebar.buttons["dashboard"].clicked.connect(lambda: self._go("dashboard"))
         self.sidebar.buttons["power"].clicked.connect(lambda: self._go("power"))
@@ -87,6 +94,15 @@ class MainWindow(QMainWindow):
         self.setStyleSheet(qss())
 
     def _go(self, key: str) -> None:
+        self._set_active_nav(key)
         order = ["dashboard", "power", "storage", "network", "updates", "dev"]
         self.stack.setCurrentIndex(order.index(key))
-        self.sidebar.set_active(key)
+        self._set_active_nav(key)
+
+    def _set_active_nav(self, key: str):
+        for k, btn in self.sidebar.buttons.items():
+            btn.setProperty("active", "1" if k == key else "0")
+            btn.style().unpolish(btn)
+            btn.style().polish(btn)
+            btn.update()
+

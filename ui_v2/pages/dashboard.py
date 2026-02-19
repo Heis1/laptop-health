@@ -1,22 +1,25 @@
 from __future__ import annotations
 
 from PySide6.QtCore import QThreadPool, QTimer
-from PySide6.QtWidgets import QGridLayout, QWidget
+from PySide6.QtWidgets import QWidget, QVBoxLayout, QGridLayout, QSizePolicy
 
-from ui_v2.services.disk import get_root_usage
-from ui_v2.services.system import get_cpu_temp
-from ui_v2.services.updates import get_update_count, reboot_required
-from ui_v2.widgets.cards import MetricCard
-from ui_v2.widgets.ring import Ring
+from ui_v2.widgets.cards import MetricCard, UpdatesCard
+from ui_v2.widgets.disk_usage_card import DiskUsageCard
+from ui_v2.widgets.network_card import NetworkCard
+from ui_v2.widgets.inspector import Inspector
 from ui_v2.workers import Worker
+from ui_v2.services.overview_metrics import gather_overview, OverviewMetrics
 
 
-def accent_for_percent(p: int) -> str:
-    if p >= 85:
-        return "red"
-    if p >= 70:
-        return "orange"
-    return "green"
+def _fmt_cpu(temp_c: float | None, ghz: float | None) -> tuple[str, str, str]:
+    if temp_c is None:
+        big = "—"
+        accent = "blue"
+    else:
+        big = f"{temp_c:.0f}°C"
+        accent = "green" if temp_c < 55 else ("orange" if temp_c < 75 else "red")
+    sub = "—" if ghz is None else f"{ghz:.1f} GHz"
+    return big, sub, accent
 
 
 class DashboardPage(QWidget):
@@ -24,116 +27,104 @@ class DashboardPage(QWidget):
         super().__init__()
         self.pool = QThreadPool()
 
-        self.grid = QGridLayout(self)
-        self.grid.setContentsMargins(0, 0, 0, 0)
-        self.grid.setHorizontalSpacing(12)
-        self.grid.setVerticalSpacing(12)
+        outer = QVBoxLayout(self)
+        outer.setContentsMargins(0, 0, 0, 0)
+        outer.setSpacing(12)
 
-        self.cpu_card = MetricCard("CPU", "Loading…", "—", "green")
-        self.disk_ring = Ring(0, "orange")
-        self.disk_card = MetricCard("Disk Usage", "Loading…", "—", "orange", right_widget=self.disk_ring)
-        self.updates_card = MetricCard("Pending Updates", "Loading…", "—", "red", badge=None)
+        grid = QGridLayout()
+        grid.setHorizontalSpacing(12)
+        grid.setVerticalSpacing(12)
+        grid.setColumnStretch(0, 1)
+        grid.setColumnStretch(1, 1)
+        grid.setColumnStretch(2, 2)
+        grid.setColumnStretch(3, 2)
 
-        self.grid.addWidget(self.cpu_card, 0, 0)
-        self.grid.addWidget(self.disk_card, 0, 1)
-        self.grid.addWidget(self.updates_card, 1, 0, 1, 2)
+        # Top row
+        self.cpu = MetricCard("CPU", "—", "—", "green", spark_points=[0.35,0.45,0.42,0.52,0.49,0.6,0.55])
+        self.gpu = MetricCard("GPU", "—", "—", "blue", spark_points=[0.22,0.28,0.26,0.35,0.3,0.38,0.33])
 
-        self.refresh()
+        self.disk = DiskUsageCard(0, "—")
+        try:
+            self.disk.title.setText("Disk Usage (Home)")
+        except Exception:
+            pass
+
+        for w in (self.cpu, self.gpu, self.disk):
+            w.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+
+        grid.addWidget(self.cpu, 0, 0)
+        grid.addWidget(self.gpu, 0, 1)
+        grid.addWidget(self.disk, 0, 2, 1, 2)
+
+        # Second row
+        self.updates = UpdatesCard("red")
+        self.net = NetworkCard()
+
+        self.updates.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+        self.net.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+
+        grid.addWidget(self.updates, 1, 0, 1, 2)
+        grid.addWidget(self.net, 1, 2, 1, 2)
+
+        outer.addLayout(grid)
+        outer.addWidget(Inspector())
+
+        self._refresh()
         self.timer = QTimer(self)
-        self.timer.setInterval(10_000)  # 10s refresh
-        self.timer.timeout.connect(self.refresh)
+        self.timer.setInterval(5000)
+        self.timer.timeout.connect(self._refresh)
         self.timer.start()
 
-    def refresh(self) -> None:
-        self._load_cpu()
-        self._load_disk()
-        self._load_updates()
-
-    # ---- CPU ----
-    def _load_cpu(self) -> None:
-        w = Worker(get_cpu_temp)
-        w.signals.finished.connect(self._cpu_done)
+    def _refresh(self):
+        w = Worker(lambda: gather_overview(interval_s=1.0))
+        w.signals.finished.connect(self._apply)
         self.pool.start(w)
 
-    def _cpu_done(self, result) -> None:
-        temp = result if isinstance(result, (int, float)) else None
-        if temp is None:
-            self.cpu_card.findChild(QWidget).findChild  # noop: keep stable even if layout changes
-            self._set_card_text(self.cpu_card, "CPU", "N/A", "sensors not available", "orange")
-        else:
-            accent = "green" if temp < 80 else ("orange" if temp < 90 else "red")
-            self._set_card_text(self.cpu_card, "CPU", f"{temp:.1f}°C", "Live CPU temperature", accent)
-
-    # ---- Disk ----
-    def _load_disk(self) -> None:
-        w = Worker(get_root_usage)
-        w.signals.finished.connect(self._disk_done)
-        self.pool.start(w)
-
-    def _disk_done(self, result) -> None:
-        if not isinstance(result, tuple):
-            self._set_card_text(self.disk_card, "Disk Usage", "N/A", "df not available", "orange")
+    def _apply(self, result):
+        if not isinstance(result, OverviewMetrics):
             return
-        percent, avail = result
-        acc = accent_for_percent(percent)
-        self.disk_card.setProperty("accent", acc)
-        self.disk_card.style().unpolish(self.disk_card)
-        self.disk_card.style().polish(self.disk_card)
-        self.disk_ring.value = percent
-        self.disk_ring.accent = acc if acc != "green" else "orange"
-        self.disk_ring.update()
-        self._set_card_text(self.disk_card, "Disk Usage", f"{percent}% Used", f"{avail} Free on /", acc)
 
-    # ---- Updates ----
-    def _load_updates(self) -> None:
-        w = Worker(get_update_count)
-        w.signals.finished.connect(self._updates_done)
-        self.pool.start(w)
+        big, sub, accent = _fmt_cpu(result.cpu_temp_c, result.cpu_freq_ghz)
+        self.cpu.set_values(big, sub, accent)
 
-    def _updates_done(self, result) -> None:
-        if not isinstance(result, tuple):
-            self._set_card_text(self.updates_card, "Pending Updates", "N/A", "apt-check unavailable", "orange")
-            return
-        total, sec = result
-        reboot = reboot_required()
+        # GPU stays placeholder until wired
+        self.gpu.set_values("—", "Not wired yet", "blue")
 
-        if total == 0:
-            acc = "green"
-            badge = None
-        elif sec > 0 or reboot:
-            acc = "red"
-            badge = "Attention"
+        # Home disk main, root warning in subtitle
+        home_used = result.home_used_pct
+        home_free = result.home_free_gb
+        root_free = result.root_free_gb
+
+        # Accent based on root free space (because root is operational risk)
+        disk_accent = "orange"
+        if root_free is not None:
+            if root_free < 5:
+                disk_accent = "red"
+            elif root_free < 8:
+                disk_accent = "orange"
+            else:
+                disk_accent = "orange"
+
+        self.disk.setProperty("accent", disk_accent)
+        self.disk.style().unpolish(self.disk)
+        self.disk.style().polish(self.disk)
+        self.disk.update()
+
+        # Set displayed values (home)
+        if home_used is None:
+            self.disk.big.setText("—")
+            self.disk.bar.setValue(0)
         else:
-            acc = "orange"
-            badge = None
+            self.disk.big.setText(f"{int(home_used)}% Used")
+            self.disk.bar.setValue(max(0, min(100, int(home_used))))
 
-        self.updates_card.setProperty("accent", acc)
-        self.updates_card.style().unpolish(self.updates_card)
-        self.updates_card.style().polish(self.updates_card)
+        # Subtitle: Home free + Root free
+        if home_free is None and root_free is None:
+            self.disk.sub.setText("—")
+        else:
+            hf = "—" if home_free is None else f"{home_free:.0f} GB Free"
+            rf = "—" if root_free is None else f"{root_free:.0f} GB Free"
+            self.disk.sub.setText(f"Home: {hf}   •   Root: {rf}")
 
-        # badge on/off (rebuild title row badge simply by using subtitle)
-        sub = f"{sec} security • Reboot: {'Yes' if reboot else 'No'}" if total else "System up to date"
-        big = f"{total} Updates" if total else "0 Updates"
-
-        # If you want a real badge widget later, we’ll add it—keeping this stable for now.
-        self._set_card_text(self.updates_card, "Pending Updates", big, sub, acc)
-
-    # ---- Helpers ----
-    def _set_card_text(self, card: MetricCard, title: str, big: str, sub: str, accent: str) -> None:
-        # MetricCard structure:
-        # outer layout:
-        #   [0] title row layout
-        #   [1] content row layout (left column has big/sub)
-        outer = card.layout()
-        content_layout = outer.itemAt(1).layout()
-        left_layout = content_layout.itemAt(0).layout()
-        big_lbl = left_layout.itemAt(0).widget()
-        sub_lbl = left_layout.itemAt(1).widget()
-
-        big_lbl.setText(big)
-        sub_lbl.setText(sub)
-
-        card.setProperty("accent", accent)
-        card.style().unpolish(card)
-        card.style().polish(card)
-        card.update()
+        self.net.set_network(result.down_mbps, result.latency_ms)
+        self.updates.set_updates(result.updates_available)

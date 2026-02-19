@@ -3,12 +3,13 @@ from typing import Optional
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QIcon
 from PySide6.QtWidgets import QFrame, QHBoxLayout, QLabel, QStyle, QVBoxLayout, QWidget
+
 from ui_v2.widgets.sparkline import Sparkline
 from ui_v2.widgets.ring import Ring
 
 ICON_MAP = {
     "CPU": QStyle.SP_ComputerIcon,
-    "GPU": QStyle.SP_DriveHDIcon,
+    "GPU": QStyle.SP_ComputerIcon,
     "Disk Usage": QStyle.SP_DriveHDIcon,
     "Pending Updates": QStyle.SP_MessageBoxWarning,
     "Network": QStyle.SP_DriveNetIcon,
@@ -29,6 +30,7 @@ class MetricCard(QFrame):
         super().__init__(parent)
         self.setObjectName("Card")
         self.setProperty("accent", accent)
+        self.setMinimumHeight(150)
 
         outer = QVBoxLayout(self)
         outer.setContentsMargins(16, 16, 16, 16)
@@ -61,13 +63,13 @@ class MetricCard(QFrame):
         left = QVBoxLayout()
         left.setSpacing(6)
 
-        big_lbl = QLabel(big)
-        big_lbl.setObjectName("CardBig")
-        sub_lbl = QLabel(sub)
-        sub_lbl.setObjectName("CardSub")
+        self.big_lbl = QLabel(big)
+        self.big_lbl.setObjectName("CardBig")
+        self.sub_lbl = QLabel(sub)
+        self.sub_lbl.setObjectName("CardSub")
 
-        left.addWidget(big_lbl)
-        left.addWidget(sub_lbl)
+        left.addWidget(self.big_lbl)
+        left.addWidget(self.sub_lbl)
         left.addStretch(1)
 
         content.addLayout(left, 2)
@@ -77,14 +79,27 @@ class MetricCard(QFrame):
 
         outer.addLayout(content)
 
+        self.spark = None
         if spark_points is not None:
-            outer.addWidget(Sparkline(spark_points, accent=accent))
+            self.spark = Sparkline(spark_points, accent=accent)
+            outer.addWidget(self.spark)
+
+    def set_values(self, big: str, sub: str, accent: str | None = None):
+        self.big_lbl.setText(big)
+        self.sub_lbl.setText(sub)
+        if accent:
+            self.setProperty("accent", accent)
+        self.style().unpolish(self)
+        self.style().polish(self)
+        self.update()
+
 
 class UpdatesCard(QFrame):
     def __init__(self, accent: str = "red"):
         super().__init__()
         self.setObjectName("Card")
         self.setProperty("accent", accent)
+        self.setMinimumHeight(150)
 
         outer = QVBoxLayout(self)
         outer.setContentsMargins(16, 16, 16, 16)
@@ -102,11 +117,13 @@ class UpdatesCard(QFrame):
         row.addWidget(t)
         row.addStretch(1)
 
-        badge = QLabel("Attention")
-        badge.setObjectName("Badge")
-        row.addWidget(badge)
+        self.badge = QLabel("Attention")
+        self.badge.setObjectName("Badge")
+        row.addWidget(self.badge)
 
         outer.addLayout(row)
+
+        self.rows: dict[str, QLabel] = {}
 
         def add_row(label: str, value: str):
             r = QHBoxLayout()
@@ -114,11 +131,15 @@ class UpdatesCard(QFrame):
             v = QLabel(value); v.setObjectName("RowValue")
             r.addWidget(l); r.addStretch(1); r.addWidget(v)
             outer.addLayout(r)
+            self.rows[label] = v
 
-        add_row("Updates Available", "7")
-        add_row("Security Updates", "2")
-        add_row("Reboot Required", "No")
+        add_row("Updates Available", "—")
         outer.addStretch(1)
 
-def demo_disk_card():
-    return MetricCard("Disk Usage", "72% Used", "35 GB Free", "orange", right_widget=Ring(72, "orange"))
+    def set_updates(self, count: int | None):
+        if count is None:
+            self.rows["Updates Available"].setText("—")
+            self.badge.setText("Unknown")
+        else:
+            self.rows["Updates Available"].setText(str(count))
+            self.badge.setText("OK" if count == 0 else "Attention")

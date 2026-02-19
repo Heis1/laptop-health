@@ -2,7 +2,6 @@ from __future__ import annotations
 
 BG_MAIN = "#0b1220"
 BG_SIDEBAR = "#0f1a2b"
-BG_CARD = "#101b2c"
 BORDER = "#1a2a41"
 
 TEXT = "#e8f0ff"
@@ -17,111 +16,115 @@ ACCENT = {
     "purple": "#a78bfa",
 }
 
-def qss() -> str:
+def _qss_base() -> str:
     return f"""
     QMainWindow {{
         background: {BG_MAIN};
     }}
 
+    /* ---- Sidebar ---- */
     #Sidebar {{
         background: {BG_SIDEBAR};
         border: 1px solid #1c2a3f;
         border-radius: 18px;
     }}
+
     #AppTitle {{
         color: {TEXT};
         font-size: 18px;
         font-weight: 800;
     }}
-    #NavBtn, #NavBtnSecondary {{
+
+    #NavBtn {{
         background: #12223a;
-        color: #d7e3f4;
-        border: 1px solid #1c2f4a;
-        border-radius: 14px;
+        color: #cbd5e1;
+        border: none;
+        border-radius: 12px;
         padding: 10px 12px;
         text-align: left;
         font-size: 13px;
     }}
-    #NavBtn:hover, #NavBtnSecondary:hover {{
-        background: #162b46;
-    }}
+
     #NavBtn[active="1"] {{
-        background: #1a3354;
-        border: 1px solid #2a4a77;
+        background: rgba(96,165,250,0.15);
+        color: #ffffff;
+        border-left: 3px solid #60a5fa;
     }}
 
-    #PageTitle {{
-        color: {TEXT};
-        font-size: 22px;
-        font-weight: 850;
-    }}
-    #TopBtn, #TopBtnIcon {{
-        background: #12223a;
-        color: #d7e3f4;
-        border: 1px solid #1c2f4a;
-        border-radius: 14px;
-        padding: 10px 12px;
-        font-size: 13px;
-    }}
-    #TopBtn:hover, #TopBtnIcon:hover {{
+    #NavBtn:hover {{
         background: #162b46;
     }}
 
+    /* ---- Cards ---- */
     #Card {{
-        background: {BG_CARD};
+        background: rgba(255,255,255,0.02);
         border: 1px solid {BORDER};
         border-radius: 18px;
     }}
-    #Card[accent="green"]  {{ border-left: 5px solid {ACCENT["green"]}; }}
-    #Card[accent="blue"]   {{ border-left: 5px solid {ACCENT["blue"]}; }}
-    #Card[accent="orange"] {{ border-left: 5px solid {ACCENT["orange"]}; }}
-    #Card[accent="red"]    {{ border-left: 5px solid {ACCENT["red"]}; }}
-    #Card[accent="purple"] {{ border-left: 5px solid {ACCENT["purple"]}; }}
+
+    #Card[accent="green"] {{
+        border-left: 4px solid {ACCENT["green"]};
+    }}
+    #Card[accent="blue"] {{
+        border-left: 4px solid {ACCENT["blue"]};
+    }}
+    #Card[accent="orange"] {{
+        border-left: 4px solid {ACCENT["orange"]};
+    }}
+    #Card[accent="red"] {{
+        border-left: 4px solid {ACCENT["red"]};
+    }}
+    #Card[accent="purple"] {{
+        border-left: 4px solid {ACCENT["purple"]};
+    }}
 
     #CardTitle {{
         color: {TEXT_MID};
         font-size: 14px;
-        font-weight: 700;
-    }}
-    #CardBig {{
-        color: #ffffff;
-        font-size: 34px;
-        font-weight: 900;
-        margin-top: 2px;
-    }}
-    #CardSub {{
-        color: {TEXT_MUTED};
-        font-size: 13px;
+        font-weight: 750;
     }}
 
-    #Badge {{
-        background: rgba(248, 113, 113, 0.18);
-        border: 1px solid rgba(248, 113, 113, 0.35);
-        color: #ffd2d2;
-        padding: 4px 10px;
-        border-radius: 999px;
-        font-size: 12px;
+    #CardBig {{
+        color: #ffffff;
+        font-size: 30px;
         font-weight: 800;
     }}
 
-    #RowLabel {{
+    #CardSub {{
         color: {TEXT_MUTED};
-        font-size: 13px;
-    }}
-    #RowValue {{
-        color: {TEXT};
-        font-size: 13px;
-        font-weight: 700;
+        font-size: 12px;
     }}
 
-    #InspectorToggle {{
-        color: #d7e3f4;
-        font-size: 13px;
-        font-weight: 750;
-        padding: 6px;
+    #InspectorContainer {{
+        background: rgba(255,255,255,0.03);
+        border: 1px solid rgba(255,255,255,0.08);
+        border-radius: 18px;
     }}
-    #InspectorDots {{
-        color: #89a1c2;
-        font-size: 14px;
-    }}
-    """
+    
+"""
+
+
+# --- v2 typography overrides (safe append) ---
+TYPOGRAPHY_QSS = r'''
+QLabel#CardHuge {
+    font-size: 34px;
+    font-weight: 800;
+    letter-spacing: 0.2px;
+}
+QLabel#CardBig {
+    font-size: 30px;
+    font-weight: 800;
+}
+QLabel#CardTitle {
+    font-size: 13px;
+    font-weight: 700;
+}
+QLabel#CardSub {
+    font-size: 11px;
+    font-weight: 600;
+    color: rgba(255,255,255,0.70);
+}
+'''
+
+def qss():
+    return _qss_base() + "\n" + TYPOGRAPHY_QSS
