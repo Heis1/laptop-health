@@ -1,0 +1,92 @@
+from __future__ import annotations
+from PySide6.QtWidgets import (
+    QFrame, QHBoxLayout, QLabel, QMainWindow, QPushButton, QStackedWidget,
+    QVBoxLayout, QWidget, QStyle
+)
+
+from ui_v2.theme import qss
+from ui_v2.widgets.sidebar import Sidebar
+from ui_v2.widgets.inspector import Inspector
+
+from ui_v2.pages.dashboard import DashboardPage
+from ui_v2.pages.power import PowerPage
+from ui_v2.pages.network import NetworkPage
+from ui_v2.pages.storage import StoragePage
+from ui_v2.pages.updates import UpdatesPage
+from ui_v2.pages.devtools import DevToolsPage
+
+
+class MainWindow(QMainWindow):
+    def __init__(self):
+        super().__init__()
+        self.setWindowTitle("Laptop Health (UI v2)")
+        self.resize(1280, 820)
+
+        root = QWidget()
+        self.setCentralWidget(root)
+
+        main = QHBoxLayout(root)
+        main.setContentsMargins(18, 18, 18, 18)
+        main.setSpacing(16)
+
+        self.sidebar = Sidebar()
+        main.addWidget(self.sidebar)
+
+        content = QWidget()
+        c = QVBoxLayout(content)
+        c.setContentsMargins(0, 0, 0, 0)
+        c.setSpacing(16)
+        main.addWidget(content, 1)
+
+        top = QFrame()
+        t = QHBoxLayout(top)
+        t.setContentsMargins(6, 6, 6, 6)
+        t.setSpacing(12)
+
+        title = QLabel("Laptop Health Dashboard")
+        title.setObjectName("PageTitle")
+        t.addWidget(title)
+        t.addStretch(1)
+
+        export = QPushButton("Export")
+        export.setObjectName("TopBtn")
+        export.setIcon(self.style().standardIcon(QStyle.SP_DialogSaveButton))
+        t.addWidget(export)
+
+        gear = QPushButton(" ")
+        gear.setObjectName("TopBtnIcon")
+        gear.setIcon(self.style().standardIcon(QStyle.SP_FileDialogDetailedView))
+        gear.setFixedWidth(44)
+        t.addWidget(gear)
+
+        c.addWidget(top)
+
+        self.stack = QStackedWidget()
+        self.pages = {
+            "dashboard": DashboardPage(),
+            "power": PowerPage(),
+            "storage": StoragePage(),
+            "network": NetworkPage(),
+            "updates": UpdatesPage(),
+            "dev": DevToolsPage(),
+        }
+        order = ["dashboard", "power", "storage", "network", "updates", "dev"]
+        for k in order:
+            self.stack.addWidget(self.pages[k])
+        c.addWidget(self.stack, 1)
+
+        c.addWidget(Inspector())
+
+        self.sidebar.buttons["dashboard"].clicked.connect(lambda: self._go("dashboard"))
+        self.sidebar.buttons["power"].clicked.connect(lambda: self._go("power"))
+        self.sidebar.buttons["storage"].clicked.connect(lambda: self._go("storage"))
+        self.sidebar.buttons["network"].clicked.connect(lambda: self._go("network"))
+        self.sidebar.buttons["updates"].clicked.connect(lambda: self._go("updates"))
+        self.sidebar.buttons["dev"].clicked.connect(lambda: self._go("dev"))
+
+        self.setStyleSheet(qss())
+
+    def _go(self, key: str) -> None:
+        order = ["dashboard", "power", "storage", "network", "updates", "dev"]
+        self.stack.setCurrentIndex(order.index(key))
+        self.sidebar.set_active(key)
