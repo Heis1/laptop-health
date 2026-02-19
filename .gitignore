@@ -49,3 +49,8 @@ pkg/
 *.spec
 __pycache__/
 *.pyc
+powertop.csv
+release/
+fix_disk_import.sh
+ui_preview.py
+
