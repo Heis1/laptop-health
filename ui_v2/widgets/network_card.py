@@ -7,6 +7,18 @@ from ui_v2.qtworker import QtWorker
 from ui_v2.services.network_metrics import sample_network, NetworkSnapshot
 
 
+def _fmt_mbps(v: float | None) -> str | None:
+    if v is None:
+        return None
+    try:
+        v = float(v)
+    except Exception:
+        return None
+    if v < 10:
+        return f"{v:.1f}"
+    return f"{v:.0f}"
+
+
 class NetworkCard(QFrame):
     def __init__(self):
         super().__init__()
@@ -14,6 +26,12 @@ class NetworkCard(QFrame):
         self.setProperty("accent", "blue")
 
         self.pool = QThreadPool()
+
+        # last-known values so transient None/errors don't blank the tile
+        self._last_down: str = "— Mbps ↓"
+        self._last_up: str = "— Mbps ↑"
+        self._last_ip: str = "—"
+        self._last_ping: str = "—"
 
         outer = QVBoxLayout(self)
         outer.setContentsMargins(16, 14, 16, 14)
@@ -30,12 +48,23 @@ class NetworkCard(QFrame):
         hdr.addStretch(1)
         outer.addLayout(hdr)
 
-        self.big = QLabel("—"); self.big.setObjectName("CardHuge")
-        self.sub = QLabel("—"); self.sub.setObjectName("CardSub"); self.sub.setWordWrap(True)
-        self.meta = QLabel("—"); self.meta.setObjectName("CardSub"); self.meta.setWordWrap(True)
+        self.big = QLabel("—")
+        self.big.setObjectName("CardHuge")
+
+        self.sub = QLabel("—")
+        self.sub.setObjectName("CardSub")
+        self.sub.setWordWrap(True)
+
+        self.meta = QLabel("—")
+        self.meta.setObjectName("CardSub")
+        self.meta.setWordWrap(True)
+
         outer.addWidget(self.big)
         outer.addWidget(self.sub)
         outer.addWidget(self.meta)
+
+        # paint with defaults immediately
+        self._render()
 
         self._refresh()
         self.timer = QTimer(self)
@@ -43,21 +72,32 @@ class NetworkCard(QFrame):
         self.timer.timeout.connect(self._refresh)
         self.timer.start()
 
-    # Dashboard compatibility
+    # Dashboard compatibility (if dashboard calls it)
     def set_network(self, down_mbps: float | None, latency_ms: float | None) -> None:
-        # Only use if dashboard calls it; we keep it mild and never force red unless latency is real.
+        d = _fmt_mbps(down_mbps)
+        if d is not None:
+            self._last_down = f"{d} Mbps ↓"
+
+        if latency_ms is not None:
+            self._last_ping = f"{latency_ms:.0f} ms ping"
+
+        # keep last_up/ip
+        self._render()
+
         accent = "blue"
         if latency_ms is not None:
-            if latency_ms > 80: accent = "red"
-            elif latency_ms > 35: accent = "orange"
-            else: accent = "green"
+            if latency_ms > 80:
+                accent = "red"
+            elif latency_ms > 35:
+                accent = "orange"
+            else:
+                accent = "green"
         self.setProperty("accent", accent)
         self._restyle()
 
-        d = "—" if down_mbps is None else f"{down_mbps:.0f} Mbps ↓"
-        l = "—" if latency_ms is None else f"{latency_ms:.0f} ms ping"
-        self.big.setText(d)
-        self.sub.setText(l)
+    def _render(self):
+        self.big.setText(f"{self._last_down}   {self._last_up}")
+        self.sub.setText(f"{self._last_ping} • IP {self._last_ip}")
 
     def _refresh(self):
         w = QtWorker(lambda: sample_network(0.4))
@@ -66,38 +106,55 @@ class NetworkCard(QFrame):
         self.pool.start(w)
 
     def _apply_error(self, msg: str):
+        # IMPORTANT: do NOT blank/overwrite displayed values on transient errors
         self.setProperty("accent", "red")
         self._restyle()
-        self.big.setText("—")
-        self.sub.setText(msg or "Network error")
-        self.meta.setText("—")
+        # Put error in meta only (optional)
+        if msg:
+            self.meta.setText(msg)
 
     def _apply(self, r):
         if not isinstance(r, NetworkSnapshot) or r.error:
             self._apply_error((r.error if isinstance(r, NetworkSnapshot) else None) or "Network error")
             return
 
+        # Accent based on ping
         accent = "green"
         if r.latency_ms is not None:
-            if r.latency_ms > 80: accent = "red"
-            elif r.latency_ms > 35: accent = "orange"
+            if r.latency_ms > 80:
+                accent = "red"
+            elif r.latency_ms > 35:
+                accent = "orange"
         self.setProperty("accent", accent)
         self._restyle()
 
-        down = "—" if r.rx_mbps is None else f"{r.rx_mbps:.0f} Mbps ↓"
-        up = "—" if r.tx_mbps is None else f"{r.tx_mbps:.0f} Mbps ↑"
-        self.big.setText(f"{down}   {up}")
+        # Update last-known values ONLY when present
+        d = _fmt_mbps(r.rx_mbps)
+        if d is not None:
+            self._last_down = f"{d} Mbps ↓"
 
-        lat = "—" if r.latency_ms is None else f"{r.latency_ms:.0f} ms ping"
-        ip = r.ip or "—"
-        self.sub.setText(f"{lat} • IP {ip}")
+        u = _fmt_mbps(r.tx_mbps)
+        if u is not None:
+            self._last_up = f"{u} Mbps ↑"
+
+        if r.ip:
+            self._last_ip = r.ip
+
+        if r.latency_ms is not None:
+            self._last_ping = f"{r.latency_ms:.0f} ms ping"
+
+        self._render()
 
         bits = []
-        if r.iface: bits.append(r.iface)
-        if r.ssid: bits.append(f"Wi-Fi: {r.ssid}")
-        if r.signal is not None: bits.append(f"Signal {r.signal}%")
-        if r.rate: bits.append(f"Link {r.rate}")
-        self.meta.setText(" • ".join(bits) if bits else "—")
+        if r.iface:
+            bits.append(r.iface)
+        if r.ssid:
+            bits.append(f"Wi-Fi: {r.ssid}")
+        if r.signal is not None:
+            bits.append(f"Signal {r.signal}%")
+        if r.rate:
+            bits.append(f"Link {r.rate}")
+        self.meta.setText(" • ".join(bits) if bits else self.meta.text())
 
     def _restyle(self):
         self.style().unpolish(self)
