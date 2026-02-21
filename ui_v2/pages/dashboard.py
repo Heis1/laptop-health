@@ -3,6 +3,15 @@ from __future__ import annotations
 from PySide6.QtCore import QThreadPool, QTimer
 from PySide6.QtWidgets import QWidget, QVBoxLayout, QGridLayout, QSizePolicy
 
+def _fix_top_row_heights(*widgets, h: int = 170) -> None:
+    # Force consistent height for top-row cards (CPU/GPU/Disk Usage)
+    for w in widgets:
+        try:
+            w.setMinimumHeight(h)
+            w.setMaximumHeight(h)
+        except Exception:
+            pass
+
 from ui_v2.widgets.cards import MetricCard, UpdatesCard
 from ui_v2.widgets.disk_usage_card import DiskUsageCard
 from ui_v2.widgets.network_card import NetworkCard
@@ -51,7 +60,6 @@ class DashboardPage(QWidget):
 
         for w in (self.cpu, self.gpu, self.disk):
             w.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
-
         grid.addWidget(self.cpu, 0, 0)
         grid.addWidget(self.gpu, 0, 1)
         grid.addWidget(self.disk, 0, 2, 1, 2)

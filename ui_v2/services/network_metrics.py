@@ -117,6 +117,12 @@ def sample_network(interval_s: float = 0.5) -> NetworkSnapshot:
             rx_mbps = (max(0, rx2 - rx1) * 8.0) / (dt * 1_000_000.0)
             tx_mbps = (max(0, tx2 - tx1) * 8.0) / (dt * 1_000_000.0)
 
+        # normalize missing rates to 0.0 (idle is valid, not 'unknown')
+        if rx_mbps is None:
+            rx_mbps = 0.0
+        if tx_mbps is None:
+            tx_mbps = 0.0
+
         lat = _latency_ms()
         return NetworkSnapshot(iface, ip, ssid, signal, rate, rx_mbps, tx_mbps, lat, error=None)
     except Exception as e:
