@@ -110,6 +110,7 @@ QLabel#CardHuge {
     font-size: 34px;
     font-weight: 800;
     letter-spacing: 0.2px;
+    color: #ffffff;
 }
 QLabel#CardBig {
     font-size: 30px;
