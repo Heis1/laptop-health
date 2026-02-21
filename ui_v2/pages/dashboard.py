@@ -51,6 +51,7 @@ class DashboardPage(QWidget):
     def __init__(self):
         super().__init__()
         self.pool = QThreadPool()
+        self._workers: list[object] = []
 
         # Sparkline histories (store 0..1 floats)
         self._cpu_hist = deque([0.0] * 30, maxlen=30)
@@ -74,8 +75,8 @@ class DashboardPage(QWidget):
         grid.setColumnStretch(3, 2)
 
         # Top row
-        self.cpu = MetricCard("CPU", "—", "—", "green", spark_points=[])
-        self.gpu = MetricCard("GPU", "—", "—", "blue", spark_points=[])
+        self.cpu = MetricCard("CPU", "—", "—", "green", spark_points=[0.0]*24)
+        self.gpu = MetricCard("GPU", "—", "—", "blue", spark_points=[0.0]*24)
 
         self.disk = DiskUsageCard(0, "—")
         try:
@@ -112,12 +113,30 @@ class DashboardPage(QWidget):
     def _refresh(self):
         # Overview (CPU/disk/network/updates)
         w = Worker(lambda: gather_overview(interval_s=1.0))
-        w.signals.finished.connect(self._apply)
+        self._workers.append(w)
+        def _done_overview(res):
+            try:
+                self._apply(res)
+            finally:
+                try:
+                    self._workers.remove(w)
+                except ValueError:
+                    pass
+        w.signals.finished.connect(_done_overview)
         self.pool.start(w)
 
         # GPU (separate worker so Overview doesn’t block)
         w_gpu = Worker(get_gpu)
-        w_gpu.signals.finished.connect(self._apply_gpu)
+        self._workers.append(w_gpu)
+        def _done_gpu(res):
+            try:
+                self._apply_gpu(res)
+            finally:
+                try:
+                    self._workers.remove(w_gpu)
+                except ValueError:
+                    pass
+        w_gpu.signals.finished.connect(_done_gpu)
         self.pool.start(w_gpu)
 
     def _apply_gpu(self, r):
