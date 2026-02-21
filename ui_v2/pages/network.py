@@ -299,9 +299,9 @@ class NetworkPage(QWidget):
             self._restyle(self.card)
 
             self.meta.setText(getattr(r, "error", None) or "Speed test failed.")
-            self.down.setText("— Mbps ↓")
-            self.up.setText("— Mbps ↑")
-            self.ping_line.setText("—")
+            # keep last-known Down on failure (do not blank)
+            # keep last-known Up on failure (do not blank)
+            # keep last-known Ping on failure (do not blank)
             return
 
         self.history.appendleft(r)
