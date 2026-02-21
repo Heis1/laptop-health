@@ -18,6 +18,13 @@ class Sparkline(QWidget):
         self.setMinimumHeight(46)
         self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
 
+    def set_points(self, points: list[float]) -> None:
+        """Replace sparkline data (expects 0..1 normalized floats)."""
+        if not points:
+            return
+        self._points = points[:]
+        self.update()
+
     def paintEvent(self, event):
         w, h = self.width(), self.height()
         p = QPainter(self)
