@@ -84,6 +84,22 @@ class MetricCard(QFrame):
             self.spark = Sparkline(spark_points, accent=accent)
             outer.addWidget(self.spark)
 
+    def set_spark(self, points: list[float]) -> None:
+        """Update sparkline points (expects 0..1 floats)."""
+        spark = getattr(self, 'spark', None)
+        if spark is None:
+            return
+        # Preferred API
+        if hasattr(spark, 'set_points') and callable(getattr(spark, 'set_points')):
+            spark.set_points(points)
+        else:
+            # Fallback if sparkline uses a public attribute
+            try:
+                spark.points = points
+            except Exception:
+                return
+        spark.update()
+
     def set_values(self, big: str, sub: str, accent: str | None = None):
         self.big_lbl.setText(big)
         self.sub_lbl.setText(sub)
