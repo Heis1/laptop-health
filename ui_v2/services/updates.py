@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import shutil
 import subprocess
 from typing import Tuple
 
@@ -9,41 +10,34 @@ def reboot_required() -> bool:
     return os.path.exists("/var/run/reboot-required")
 
 
-def _run_text(cmd: list[str]) -> tuple[int, str]:
+def _run_text(cmd: list[str], timeout: int = 10) -> tuple[int, str]:
     try:
-        p = subprocess.run(cmd, capture_output=True, text=True, timeout=10)
-        out = (p.stdout or "").strip()
-        return p.returncode, out
+        p = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
+        out = ((p.stdout or "") + ("\n" if p.stdout and p.stderr else "") + (p.stderr or "")).strip()
+        return int(p.returncode), out
     except Exception:
         return 1, ""
 
 
-def _apt_list_upgradable() -> list[str] | None:
-    # Using apt list because it works reliably on your system
+def _apt_list_upgradable_lines() -> list[str] | None:
     rc, out = _run_text(["bash", "-lc", "apt list --upgradable 2>/dev/null | tail -n +2"])
     if rc != 0:
         return None
-    lines = [ln.strip() for ln in out.splitlines() if ln.strip()]
-    return lines
+    return [ln.strip() for ln in out.splitlines() if ln.strip()]
 
 
 def _count_security_from_line(line: str) -> bool:
-    # apt list line includes origin tags like: "... noble-updates,noble-security ..."
-    # We treat anything containing "-security" as a security update.
     return "-security" in line
 
 
 def get_update_count() -> Tuple[int | None, int | None]:
     """
-    Returns (total_updates, security_updates).
-
-    We use `apt list --upgradable` as primary source (works on Mint/Ubuntu),
-    and count security updates by presence of '-security' in the origin tags.
+    Returns (total_updates, security_updates) based on:
+      apt list --upgradable
     """
-    lines = _apt_list_upgradable()
+    lines = _apt_list_upgradable_lines()
     if lines is None:
         return None, None
-
     total = len(lines)
     security = sum(1 for ln in lines if _count_security_from_line(ln))
     return total, security
@@ -51,35 +45,15 @@ def get_update_count() -> Tuple[int | None, int | None]:
 
 def list_upgradable() -> list[dict]:
     """
-    Returns a list of dicts:
-      {
-        name: str,
-        origin: str,          # e.g. noble-updates,noble-security
-        security: bool,       # True if "-security" in origin
-        raw: str              # original apt line
-      }
-
-    Uses: apt list --upgradable
+    Returns list of dicts:
+      { name, origin, security, raw }
     """
-    import subprocess
-
-    try:
-        out = subprocess.check_output(
-            ["bash", "-lc", "apt list --upgradable 2>/dev/null | tail -n +2"],
-            text=True,
-            timeout=10,
-        )
-    except Exception:
+    lines = _apt_list_upgradable_lines()
+    if not lines:
         return []
 
     items: list[dict] = []
-    for ln in out.splitlines():
-        ln = ln.strip()
-        if not ln:
-            continue
-        # Example:
-        # libvpx9/noble-updates,noble-security 1.14.0-1ubuntu2.3 amd64 [upgradable from: 1.14.0-1ubuntu2.2]
-        # Split "name/origin" token:
+    for ln in lines:
         first = ln.split(maxsplit=1)[0]  # name/origin
         if "/" in first:
             name, origin = first.split("/", 1)
@@ -88,6 +62,53 @@ def list_upgradable() -> list[dict]:
         security = "-security" in ln or "-security" in origin
         items.append({"name": name, "origin": origin, "security": security, "raw": ln})
     return items
+
+
+def list_kept_back() -> list[str]:
+    """
+    Parse kept-back packages from:
+      apt-get -s upgrade
+    """
+    rc, out = _run_text(["bash", "-lc", "apt-get -s upgrade 2>/dev/null"], timeout=20)
+    if rc != 0 or not out:
+        return []
+
+    kept: list[str] = []
+    lines = out.splitlines()
+
+    # Find section:
+    # The following packages have been kept back:
+    #   pkg1 pkg2 ...
+    in_section = False
+    for ln in lines:
+        if ln.startswith("The following packages have been kept back:"):
+            in_section = True
+            continue
+        if in_section:
+            if ln.startswith("The following packages will be upgraded:") or not ln.strip():
+                break
+            # wrapped list lines
+            kept.extend([x for x in ln.strip().split() if x])
+
+    # de-dupe preserving order
+    seen = set()
+    out_kept = []
+    for k in kept:
+        if k not in seen:
+            seen.add(k)
+            out_kept.append(k)
+    return out_kept
+
+
+def list_holds() -> list[str]:
+    """
+    Packages explicitly held back:
+      apt-mark showhold
+    """
+    rc, out = _run_text(["bash", "-lc", "apt-mark showhold 2>/dev/null"], timeout=10)
+    if rc != 0 or not out:
+        return []
+    return [ln.strip() for ln in out.splitlines() if ln.strip()]
 
 
 def run_apt_action(action: str) -> tuple[int, str]:
@@ -100,10 +121,6 @@ def run_apt_action(action: str) -> tuple[int, str]:
       - "autoremove"    -> apt-get -y autoremove
     Returns (rc, combined_output)
     """
-    import os
-    import shutil
-    import subprocess
-
     action = action.strip().lower()
     mapping = {
         "update": "DEBIAN_FRONTEND=noninteractive apt-get update",
@@ -127,8 +144,8 @@ def run_apt_action(action: str) -> tuple[int, str]:
 
     try:
         p = subprocess.run(argv, capture_output=True, text=True, timeout=60 * 60)
-        out = (p.stdout or "") + ("\n" if p.stdout and p.stderr else "") + (p.stderr or "")
-        return int(p.returncode), out.strip()
+        out = ((p.stdout or "") + ("\n" if p.stdout and p.stderr else "") + (p.stderr or "")).strip()
+        return int(p.returncode), out
     except subprocess.TimeoutExpired:
         return 124, "Command timed out."
     except Exception as e:
