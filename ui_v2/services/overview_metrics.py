@@ -1,4 +1,31 @@
 from __future__ import annotations
+import time
+
+_rapl_last_energy = None
+_rapl_last_time = None
+
+def _read_rapl_power() -> float | None:
+    global _rapl_last_energy, _rapl_last_time
+    try:
+        with open("/sys/class/powercap/intel-rapl:0/energy_uj", "r") as f:
+            energy = int(f.read().strip())
+        now = time.time()
+        if _rapl_last_energy is None:
+            _rapl_last_energy = energy
+            _rapl_last_time = now
+            return None
+        delta_e = energy - _rapl_last_energy
+        delta_t = now - _rapl_last_time
+        _rapl_last_energy = energy
+        _rapl_last_time = now
+        if delta_t <= 0:
+            return None
+        watts = (delta_e / 1_000_000) / delta_t
+        return round(watts, 2)
+    except Exception:
+        return None
+
+
 
 import os
 import re
@@ -18,6 +45,8 @@ except Exception:
 class OverviewMetrics:
     cpu_temp_c: float | None
     cpu_freq_ghz: float | None
+    cpu_package_w: float | None
+    cpu_vcore_v: float | None
 
     # Home filesystem (contains Path.home())
     home_used_pct: int | None
@@ -68,6 +97,44 @@ def _cpu_temp() -> float | None:
                     continue
             if best is not None:
                 return float(best)
+    except Exception:
+        pass
+    return None
+
+
+
+
+def _cpu_voltage_v() -> float | None:
+    try:
+        base = "/sys/class/hwmon"
+        if not os.path.isdir(base):
+            return None
+
+        for hw in os.listdir(base):
+            hw_path = os.path.join(base, hw)
+            name_file = os.path.join(hw_path, "name")
+            if not os.path.exists(name_file):
+                continue
+
+            name = open(name_file).read().strip().lower()
+
+            if not any(k in name for k in ("core", "cpu", "k10temp", "coretemp")):
+                continue
+
+            for file in os.listdir(hw_path):
+                if file.startswith("in") and file.endswith("_label"):
+                    label_path = os.path.join(hw_path, file)
+                    label = open(label_path).read().strip().lower()
+
+                    if any(k in label for k in ("vcore", "vdd", "svi2", "core")):
+                        idx = file.replace("_label", "_input")
+                        input_path = os.path.join(hw_path, idx)
+                        if os.path.exists(input_path):
+                            raw = float(open(input_path).read().strip())
+                            if raw > 10:
+                                raw /= 1000.0
+                            if raw > 0:
+                                return round(raw, 3)
     except Exception:
         pass
     return None
@@ -215,6 +282,9 @@ def gather_overview(interval_s: float = 1.0) -> OverviewMetrics:
     home_used, home_free = _disk_usage(home_mount)
     root_used, root_free = _disk_usage("/")
 
+    cpu_package_w = _read_rapl_power()
+    cpu_vcore_v = _cpu_voltage_v()
+
     return OverviewMetrics(
         cpu_temp_c=_cpu_temp(),
         cpu_freq_ghz=_cpu_freq_ghz(),
@@ -226,4 +296,6 @@ def gather_overview(interval_s: float = 1.0) -> OverviewMetrics:
         down_mbps=down_mbps,
         latency_ms=_latency_ms(),
         updates_available=_updates_available(),
+        cpu_package_w=cpu_package_w,
+        cpu_vcore_v=cpu_vcore_v,
     )

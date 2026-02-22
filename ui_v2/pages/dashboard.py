@@ -102,7 +102,8 @@ class DashboardPage(QWidget):
         grid.addWidget(self.net, 1, 2, 1, 2)
 
         outer.addLayout(grid)
-        outer.addWidget(Inspector())
+        self.inspector = Inspector()
+        outer.addWidget(self.inspector)
 
         self._refresh()
         self.timer = QTimer(self)
@@ -228,3 +229,15 @@ class DashboardPage(QWidget):
         # Network + Updates
         self.net.set_network(result.down_mbps, result.latency_ms)
         self.updates.set_updates(result.updates_available)
+        try:
+            self.inspector.update_overview(result)
+        except Exception:
+            pass
+
+
+    def closeEvent(self, event):
+        try:
+            self.timer.stop()
+        except Exception:
+            pass
+        super().closeEvent(event)
