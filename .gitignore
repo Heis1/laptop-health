@@ -54,3 +54,4 @@ release/
 fix_disk_import.sh
 ui_preview.py
 
+*.bak.*
