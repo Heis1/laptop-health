@@ -111,6 +111,13 @@ class MetricCard(QFrame):
 
 
 class UpdatesCard(QFrame):
+    """
+    Pending Updates card (mock-style):
+      - Updates Available
+      - Security Updates
+      - Reboot Required
+    Badge + accent reflect urgency.
+    """
     def __init__(self, accent: str = "red"):
         super().__init__()
         self.setObjectName("Card")
@@ -145,17 +152,48 @@ class UpdatesCard(QFrame):
             r = QHBoxLayout()
             l = QLabel(label); l.setObjectName("RowLabel")
             v = QLabel(value); v.setObjectName("RowValue")
+            # ensure readable contrast (mock-like)
+            l.setStyleSheet("color: rgba(255,255,255,0.88);")
+            v.setStyleSheet("color: rgba(255,255,255,0.92);")
             r.addWidget(l); r.addStretch(1); r.addWidget(v)
             outer.addLayout(r)
             self.rows[label] = v
 
         add_row("Updates Available", "—")
+        add_row("Security Updates", "—")
+        add_row("Reboot Required", "—")
+
         outer.addStretch(1)
 
-    def set_updates(self, count: int | None):
-        if count is None:
+    def set_updates(self, total: int | None, security: int | None = None, reboot: bool | None = None):
+        # unknown / not available
+        if total is None:
             self.rows["Updates Available"].setText("—")
+            self.rows["Security Updates"].setText("—")
+            self.rows["Reboot Required"].setText("—")
             self.badge.setText("Unknown")
+            self.setProperty("accent", "red")
+            self.style().unpolish(self); self.style().polish(self); self.update()
+            return
+
+        tot = int(total)
+        sec = 0 if security is None else int(security)
+        reb = False if reboot is None else bool(reboot)
+
+        self.rows["Updates Available"].setText(str(tot))
+        self.rows["Security Updates"].setText(str(sec))
+        self.rows["Reboot Required"].setText("Yes" if reb else "No")
+
+        attention = (tot > 0) or reb
+        if not attention:
+            self.badge.setText("OK")
+            accent = "green"
         else:
-            self.rows["Updates Available"].setText(str(count))
-            self.badge.setText("OK" if count == 0 else "Attention")
+            self.badge.setText("Attention")
+            accent = "red" if (sec > 0 or reb) else "orange"
+
+        self.setProperty("accent", accent)
+        self.style().unpolish(self)
+        self.style().polish(self)
+        self.update()
+
