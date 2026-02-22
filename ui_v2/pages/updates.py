@@ -9,7 +9,6 @@ from PySide6.QtWidgets import (
 
 from ui_v2.qtworker import QtWorker
 from ui_v2.services.updates import (
-from ui_v2.services.updates import (
     UPDATE_ACCENT_RGBA,
     classify_update_status,
     get_update_count,
@@ -19,14 +18,6 @@ from ui_v2.services.updates import (
     list_kept_back,
     list_holds,
 )
-    get_update_count,
-    reboot_required,
-    list_upgradable,
-    run_apt_action,
-    list_kept_back,
-    list_holds,
-)
-
 
 _ACCENT_STRIP = UPDATE_ACCENT_RGBA
 
