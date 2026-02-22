@@ -77,6 +77,51 @@ QTextEdit#UpdatesLog {
     border-radius: 12px;
     padding: 10px;
 }
+
+/* --- Dark Scrollbars --- */
+QScrollBar:vertical {
+    background: transparent;
+    width: 10px;
+    margin: 4px 0 4px 0;
+}
+QScrollBar::handle:vertical {
+    background: rgba(255,255,255,0.18);
+    border-radius: 5px;
+    min-height: 24px;
+}
+QScrollBar::handle:vertical:hover {
+    background: rgba(255,255,255,0.28);
+}
+QScrollBar::add-line:vertical,
+QScrollBar::sub-line:vertical {
+    height: 0px;
+}
+QScrollBar::add-page:vertical,
+QScrollBar::sub-page:vertical {
+    background: transparent;
+}
+
+QScrollBar:horizontal {
+    background: transparent;
+    height: 10px;
+    margin: 0 4px 0 4px;
+}
+QScrollBar::handle:horizontal {
+    background: rgba(255,255,255,0.18);
+    border-radius: 5px;
+    min-width: 24px;
+}
+QScrollBar::handle:horizontal:hover {
+    background: rgba(255,255,255,0.28);
+}
+QScrollBar::add-line:horizontal,
+QScrollBar::sub-line:horizontal {
+    width: 0px;
+}
+QScrollBar::add-page:horizontal,
+QScrollBar::sub-page:horizontal {
+    background: transparent;
+}
 """
 
 
