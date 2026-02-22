@@ -5,6 +5,7 @@ from PySide6.QtWidgets import (
 )
 from ui_v2.widgets.cards import MetricCard
 from ui_v2.widgets.shadow import apply_card_shadow
+from ui_v2.widgets.cpu_details_card import CpuDetailsCard
 
 class Inspector(QFrame):
     def __init__(self):
@@ -45,12 +46,12 @@ class Inspector(QFrame):
         grid = QGridLayout()
         grid.setHorizontalSpacing(12)
         grid.setVerticalSpacing(12)
+        grid.setColumnStretch(0, 1)
+        grid.setColumnStretch(1, 1)
+        grid.setColumnStretch(2, 1)
 
         # Three mini panels
-        cpu = MetricCard(
-            "CPU Details", "CPU Details", "Max Temp • Throttle • Frequency",
-            "green", spark_points=[0.25,0.32,0.28,0.4,0.35,0.52,0.46]
-        )
+        self.cpu_details = CpuDetailsCard()
         disk = MetricCard(
             "Disk Info", "Disk Info", "Root used • Journal • SMART",
             "purple", spark_points=[0.12,0.18,0.15,0.22,0.19,0.27,0.24]
@@ -60,7 +61,7 @@ class Inspector(QFrame):
             "orange", spark_points=[0.15,0.45,0.22,0.62,0.3,0.75,0.4]
         )
 
-        grid.addWidget(cpu, 0, 0)
+        grid.addWidget(self.cpu_details, 0, 0)
         grid.addWidget(disk, 0, 1)
         grid.addWidget(wake, 0, 2)
 
@@ -72,3 +73,12 @@ class Inspector(QFrame):
         self.toggle.setArrowType(
             Qt.DownArrow if self.toggle.isChecked() else Qt.RightArrow
         )
+
+    def update_overview(self, m) -> None:
+        """Receive OverviewMetrics from DashboardPage and fan out to sub-cards."""
+        try:
+            w = getattr(self, "cpu_details", None)
+            if w is not None and hasattr(w, "update_overview"):
+                w.update_overview(m)
+        except Exception:
+            pass
