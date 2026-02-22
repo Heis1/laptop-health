@@ -3,8 +3,16 @@ from __future__ import annotations
 from collections import deque
 from typing import Optional
 
-from PySide6.QtCore import QThreadPool, QTimer, Qt
-from PySide6.QtWidgets import QFrame, QGridLayout, QHBoxLayout, QLabel, QStyle, QVBoxLayout
+from PySide6.QtCore import QThreadPool, QTimer, Qt, QEvent
+from PySide6.QtWidgets import (
+    QFrame,
+    QGridLayout,
+    QHBoxLayout,
+    QLabel,
+    QStyle,
+    QVBoxLayout,
+    QPushButton,
+)
 
 from ui_v2.qtworker import QtWorker
 from ui_v2.services.storage_metrics import gather_storage, StorageSnapshot, MountMetrics
@@ -47,7 +55,6 @@ def _fmt_mbps(v: float | None) -> str:
 
 def _fmt_meta(m: MountMetrics) -> str:
     bits: list[str] = []
-    # identity
     if m.devpath:
         bits.append(m.devpath)
     if m.fstype:
@@ -58,25 +65,22 @@ def _fmt_meta(m: MountMetrics) -> str:
         bits.append(m.size)
     if m.temp_c is not None:
         bits.append(f"{m.temp_c:.0f}°C")
-
-    # totals
     if m.total_read_gb is not None and m.total_written_gb is not None:
         bits.append(f"Total R/W {m.total_read_gb:.0f}G / {m.total_written_gb:.0f}G")
-
-    # io dev
     if m.io_devname:
         bits.append(f"I/O /dev/{m.io_devname}")
-
     return " • ".join(bits) if bits else "—"
 
 
 class DiskInfoCard(QFrame):
     """
-    Inspector tile: intuitive disk activity view.
+    Inspector tile: disk activity view with Root/Home toggle.
       - Big Read/Write MB/s + sparklines
       - Compact identity/meta line
-      - Accent based on root used %
+      - Accent based on selected mount used %
+      - Separate sparkline history for Root vs Home
     """
+
     def __init__(self, parent: Optional[object] = None):
         super().__init__(parent)
         self.setObjectName("Card")
@@ -84,9 +88,21 @@ class DiskInfoCard(QFrame):
 
         self.pool = QThreadPool()
 
-        # History for sparklines (MB/s normalized)
-        self._read_hist = deque([0.0] * 36, maxlen=36)
-        self._write_hist = deque([0.0] * 36, maxlen=36)
+        # Root/Home toggle state
+        self._target = "root"  # "root" or "home"
+        self._last_snap: StorageSnapshot | None = None
+
+        # Separate history buffers per target (normalized 0..1)
+        self._hist = {
+            "root": {
+                "read": deque([0.0] * 36, maxlen=36),
+                "write": deque([0.0] * 36, maxlen=36),
+            },
+            "home": {
+                "read": deque([0.0] * 36, maxlen=36),
+                "write": deque([0.0] * 36, maxlen=36),
+            },
+        }
 
         outer = QVBoxLayout(self)
         outer.setContentsMargins(18, 16, 18, 16)
@@ -103,13 +119,18 @@ class DiskInfoCard(QFrame):
         hdr.addWidget(t)
         hdr.addStretch(1)
 
-        self.badge = QLabel("Root")
+        # Clickable badge (styled like Badge)
+        self.badge = QPushButton("Root")
         self.badge.setObjectName("Badge")
+        self.badge.setCursor(Qt.PointingHandCursor)
+        self.badge.setFlat(True)
+        self.badge.clicked.connect(self._toggle_target)
+        self.badge.installEventFilter(self)  # so we can refresh tooltip on hover
         hdr.addWidget(self.badge)
 
         outer.addLayout(hdr)
 
-        # Big used/free summary (kept but not dominant)
+        # Compact summary
         self.summary = QLabel("—")
         self.summary.setObjectName("CardSub")
         outer.addWidget(self.summary)
@@ -131,9 +152,9 @@ class DiskInfoCard(QFrame):
         self.write_big = QLabel("—")
         self.write_big.setObjectName("CardBig")
 
-        self.read_spark = Sparkline(list(self._read_hist), accent="blue")
+        self.read_spark = Sparkline(list(self._hist["root"]["read"]), accent="blue")
         self.read_spark.setMinimumHeight(52)
-        self.write_spark = Sparkline(list(self._write_hist), accent="orange")
+        self.write_spark = Sparkline(list(self._hist["root"]["write"]), accent="orange")
         self.write_spark.setMinimumHeight(52)
 
         grid.addWidget(self.read_label, 0, 0)
@@ -153,12 +174,38 @@ class DiskInfoCard(QFrame):
 
         outer.addStretch(1)
 
+        # initial tooltip
+        self._update_badge_tooltip()
+
         # First refresh and timer
         self._refresh()
         self.timer = QTimer(self)
-        self.timer.setInterval(5000)  # IO feels nice at 5s
+        self.timer.setInterval(5000)
         self.timer.timeout.connect(self._refresh)
         self.timer.start()
+
+    def eventFilter(self, obj, event):
+        # Update tooltip right as user hovers, so it always shows "switch to X"
+        if obj is self.badge and event.type() == QEvent.Enter:
+            self._update_badge_tooltip()
+        return super().eventFilter(obj, event)
+
+    def _update_badge_tooltip(self):
+        next_label = "Home" if self._target == "root" else "Root"
+        self.badge.setToolTip(f"Click to switch to {next_label}")
+
+    def _toggle_target(self):
+        self._target = "home" if self._target == "root" else "root"
+        self.badge.setText("Home" if self._target == "home" else "Root")
+        self._update_badge_tooltip()
+
+        # Re-render immediately from last snapshot WITHOUT appending duplicates
+        if self._last_snap is not None:
+            m = self._select_mount(self._last_snap)
+            self._render(m, append=False)
+
+    def _select_mount(self, snap: StorageSnapshot) -> MountMetrics:
+        return snap.home if self._target == "home" else snap.root
 
     def _refresh(self):
         w = QtWorker(lambda: gather_storage(interval_s=0.6))
@@ -174,43 +221,47 @@ class DiskInfoCard(QFrame):
         if msg:
             self.meta.setText(msg)
 
+    def _render(self, m: MountMetrics, append: bool):
+        # Compact summary line
+        used = "—" if m.used_pct is None else f"{int(m.used_pct)}% used"
+        free = "—" if m.free_gb is None else f"{float(m.free_gb):.0f} GB free"
+        mount_label = "/" if self._target == "root" else "Home"
+        self.summary.setText(f"{mount_label} ({m.mount}) • {used} • {free}")
+
+        # Read/Write numbers
+        self.read_big.setText(_fmt_mbps(m.read_mbps))
+        self.write_big.setText(_fmt_mbps(m.write_mbps))
+
+        # Update sparklines (cap at 200 MB/s for stable visuals)
+        cap = 200.0
+        hist = self._hist[self._target]
+        if append:
+            r = 0.0 if m.read_mbps is None else max(0.0, float(m.read_mbps))
+            wv = 0.0 if m.write_mbps is None else max(0.0, float(m.write_mbps))
+            hist["read"].append(_norm01(r, 0.0, cap))
+            hist["write"].append(_norm01(wv, 0.0, cap))
+
+        if hasattr(self.read_spark, "set_points"):
+            self.read_spark.set_points(list(hist["read"]))
+            self.write_spark.set_points(list(hist["write"]))
+        else:
+            self.read_spark._points = list(hist["read"])
+            self.write_spark._points = list(hist["write"])
+            self.read_spark.update()
+            self.write_spark.update()
+
+        # Meta + accent
+        self.meta.setText(_fmt_meta(m))
+        self.setProperty("accent", _accent_for_used(m.used_pct))
+        self.style().unpolish(self)
+        self.style().polish(self)
+        self.update()
+
     def _apply(self, snap):
         if not isinstance(snap, StorageSnapshot):
             self._apply_err("Disk info error")
             return
 
-        m = snap.root
-
-        # summary line (compact)
-        used = "—" if m.used_pct is None else f"{int(m.used_pct)}% used"
-        free = "—" if m.free_gb is None else f"{float(m.free_gb):.0f} GB free"
-        self.summary.setText(f"/  ({m.mount}) • {used} • {free}")
-
-        # read/write numbers
-        self.read_big.setText(_fmt_mbps(m.read_mbps))
-        self.write_big.setText(_fmt_mbps(m.write_mbps))
-
-        # update sparklines (cap at 200 MB/s for visual stability)
-        cap = 200.0
-        r = 0.0 if m.read_mbps is None else max(0.0, float(m.read_mbps))
-        wv = 0.0 if m.write_mbps is None else max(0.0, float(m.write_mbps))
-        self._read_hist.append(_norm01(r, 0.0, cap))
-        self._write_hist.append(_norm01(wv, 0.0, cap))
-
-        if hasattr(self.read_spark, "set_points"):
-            self.read_spark.set_points(list(self._read_hist))
-            self.write_spark.set_points(list(self._write_hist))
-        else:
-            self.read_spark._points = list(self._read_hist)
-            self.write_spark._points = list(self._write_hist)
-            self.read_spark.update()
-            self.write_spark.update()
-
-        # meta line
-        self.meta.setText(_fmt_meta(m))
-
-        # accent based on used%
-        self.setProperty("accent", _accent_for_used(m.used_pct))
-        self.style().unpolish(self)
-        self.style().polish(self)
-        self.update()
+        self._last_snap = snap
+        m = self._select_mount(snap)
+        self._render(m, append=True)
