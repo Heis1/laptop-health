@@ -9,6 +9,16 @@ from PySide6.QtWidgets import (
 
 from ui_v2.qtworker import QtWorker
 from ui_v2.services.updates import (
+from ui_v2.services.updates import (
+    UPDATE_ACCENT_RGBA,
+    classify_update_status,
+    get_update_count,
+    reboot_required,
+    list_upgradable,
+    run_apt_action,
+    list_kept_back,
+    list_holds,
+)
     get_update_count,
     reboot_required,
     list_upgradable,
@@ -18,13 +28,7 @@ from ui_v2.services.updates import (
 )
 
 
-_ACCENT_STRIP = {
-    "green": "rgba(120, 255, 190, 0.95)",
-    "orange": "rgba(255, 190, 120, 0.95)",
-    "red": "rgba(255, 130, 130, 0.95)",
-    "blue": "rgba(150, 190, 255, 0.95)",
-    "purple": "rgba(200, 170, 255, 0.95)",
-}
+_ACCENT_STRIP = UPDATE_ACCENT_RGBA
 
 _PAGE_QSS = """
 QPushButton#ActionBtn {
@@ -422,8 +426,10 @@ class UpdatesPage(QWidget):
             self.lbl_reboot.setText("Reboot: —")
             self.lbl_kept.setText("Kept back: —")
             self.lbl_held.setText("Held: —")
+            
             accent = "red"
-            self._set_badge("Unknown", accent)
+            self._set_badge("UNKNOWN", accent)
+            
         else:
             total = int(total)
             sec = 0 if sec is None else int(sec)
@@ -433,29 +439,8 @@ class UpdatesPage(QWidget):
             self.lbl_kept.setText(f"Kept back: {kept}")
             self.lbl_held.setText(f"Held: {held}")
 
-            if total == 0 and kept == 0 and held == 0 and not reb:
-                accent = "green"
-                self._set_badge("No updates available", accent)
-            else:
-                # Priority: Held > Reboot/Security > Kept back > Updates available
-                if held > 0:
-                    accent = "red"
-                    self._set_badge("HELD PACKAGES", accent)
-                elif reb and sec > 0:
-                    accent = "red"
-                    self._set_badge("REBOOT + SECURITY", accent)
-                elif reb:
-                    accent = "red"
-                    self._set_badge("REBOOT REQUIRED", accent)
-                elif sec > 0:
-                    accent = "red"
-                    self._set_badge("SECURITY UPDATES", accent)
-                elif kept > 0:
-                    accent = "orange"
-                    self._set_badge("KEPT BACK", accent)
-                else:
-                    accent = "orange"
-                    self._set_badge("UPDATES AVAILABLE", accent)
+            badge, accent = classify_update_status(total, sec, reb, kept, held)
+            self._set_badge(badge, accent)
 
         # Premium accent border so state is obvious at a glance (especially "no updates")
         strip = _ACCENT_STRIP.get(accent, "rgba(255,255,255,0.14)")

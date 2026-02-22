@@ -229,7 +229,15 @@ class DashboardPage(QWidget):
 
         # Network + Updates
         self.net.set_network(result.down_mbps, result.latency_ms)
-        self.updates.set_updates(getattr(result, 'updates_available', None), getattr(result, 'security_updates', None), getattr(result, 'reboot_required', None))
+        self.updates.set_updates(
+            getattr(result, 'updates_available', None),
+            getattr(result, 'security_updates', None),
+            getattr(result, 'reboot_required', None),
+            getattr(result, 'kept_back_updates', 0),
+            getattr(result, 'held_updates', 0),
+            getattr(result, 'updates_badge', None),
+            getattr(result, 'updates_accent', None),
+        )
         try:
             self.inspector.update_overview(result)
         except Exception:
