@@ -92,6 +92,7 @@ class DashboardPage(QWidget):
 
         # Second row
         self.updates = UpdatesCard("red")
+        self.updates.details_requested.connect(self._go_updates)
         self.net = NetworkCard()
 
         for w in (self.updates, self.net):
@@ -241,3 +242,10 @@ class DashboardPage(QWidget):
         except Exception:
             pass
         super().closeEvent(event)
+
+
+    def _go_updates(self):
+        # MainWindow owns the QStackedWidget + _go("updates")
+        w = self.window()
+        if hasattr(w, "_go"):
+            w._go("updates")

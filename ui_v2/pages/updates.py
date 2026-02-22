@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from PySide6.QtCore import Qt
-from PySide6.QtGui import QFont
+from PySide6.QtGui import QFont, QColor
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QTableWidget,
     QTableWidgetItem, QHeaderView, QTextEdit, QFrame, QStyle, QDialog,
@@ -446,12 +446,23 @@ class UpdatesPage(QWidget):
             if held_set and name.text() in held_set:
                 status_txt = "Held"
             status = QTableWidgetItem(status_txt)
+            # Premium tinting for status
+            if status_txt == "Kept back":
+                status.setForeground(QColor(255, 190, 120))  # orange tint
+            elif status_txt == "Held":
+                status.setForeground(QColor(255, 130, 130))  # red tint
+
             status.setTextAlignment(Qt.AlignCenter)
 
             # Emphasis: kept back/held should stand out a bit
             if status_txt != "Upgradable":
                 f2 = status.font(); f2.setBold(True)
                 status.setFont(f2)
+                # Subtle emphasis on the package name for clarity
+                if status_txt == "Kept back":
+                    name.setForeground(QColor(255, 210, 160))
+                elif status_txt == "Held":
+                    name.setForeground(QColor(255, 160, 160))
 
             self.table.setItem(r, 0, name)
             self.table.setItem(r, 1, origin)

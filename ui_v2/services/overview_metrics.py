@@ -1,6 +1,8 @@
 from __future__ import annotations
 import time
 
+from ui_v2.services.updates import get_update_count, reboot_required
+
 _rapl_last_energy = None
 _rapl_last_time = None
 
@@ -32,6 +34,8 @@ import re
 import shutil
 import subprocess
 import time
+
+from ui_v2.services.updates import get_update_count, reboot_required
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -60,6 +64,8 @@ class OverviewMetrics:
     down_mbps: float | None
     latency_ms: float | None
     updates_available: int | None
+    security_updates: int | None
+    reboot_required: bool | None
 
 
 def _cpu_temp() -> float | None:
@@ -285,6 +291,9 @@ def gather_overview(interval_s: float = 1.0) -> OverviewMetrics:
     cpu_package_w = _read_rapl_power()
     cpu_vcore_v = _cpu_voltage_v()
 
+    upd_total, upd_sec = get_update_count()
+    upd_reboot = bool(reboot_required())
+
     return OverviewMetrics(
         cpu_temp_c=_cpu_temp(),
         cpu_freq_ghz=_cpu_freq_ghz(),
@@ -295,7 +304,9 @@ def gather_overview(interval_s: float = 1.0) -> OverviewMetrics:
         root_free_gb=root_free,
         down_mbps=down_mbps,
         latency_ms=_latency_ms(),
-        updates_available=_updates_available(),
+        updates_available=upd_total,
+        security_updates=upd_sec,
+        reboot_required=upd_reboot,
         cpu_package_w=cpu_package_w,
         cpu_vcore_v=cpu_vcore_v,
     )
