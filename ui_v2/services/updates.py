@@ -3,7 +3,47 @@ from __future__ import annotations
 import os
 import shutil
 import subprocess
+from dataclasses import dataclass
 from typing import Tuple
+
+
+UPDATE_ACCENT_RGBA = {
+    "green": "rgba(120, 255, 190, 0.95)",
+    "orange": "rgba(255, 190, 120, 0.95)",
+    "red": "rgba(255, 130, 130, 0.95)",
+    "blue": "rgba(150, 190, 255, 0.95)",
+    "purple": "rgba(200, 170, 255, 0.95)",
+}
+
+
+@dataclass
+class UpdateSummary:
+    total: int | None
+    security: int | None
+    reboot_required: bool
+    kept_back: int
+    held: int
+    badge: str
+    accent: str
+
+
+def classify_update_status(total: int | None, security: int | None, reboot: bool, kept: int = 0, held: int = 0) -> tuple[str, str]:
+    if total is None:
+        return "Unknown", "red"
+
+    sec = 0 if security is None else int(security)
+    tot = int(total)
+
+    # Priority: Held > Security/Reboot > Kept > Updates > Clean
+    if held > 0:
+        return "Held", "red"
+    if sec > 0 or reboot:
+        return "Attention", "red"
+    if kept > 0:
+        return "Kept back", "orange"
+    if tot > 0:
+        return "Updates", "orange"
+    return "OK", "green"
 
 
 def reboot_required() -> bool:
@@ -112,6 +152,23 @@ def list_holds() -> list[str]:
         return []
     return [l.strip() for l in out.splitlines() if l.strip()]
 
+
+
+def get_update_summary() -> UpdateSummary:
+    total, security = get_update_count()
+    reboot = bool(reboot_required())
+    kept = len(list_kept_back())
+    held = len(list_holds())
+    badge, accent = classify_update_status(total, security, reboot, kept, held)
+    return UpdateSummary(
+        total=total,
+        security=security,
+        reboot_required=reboot,
+        kept_back=kept,
+        held=held,
+        badge=badge,
+        accent=accent,
+    )
 
 def run_apt_action(action: str) -> tuple[int, str]:
     """

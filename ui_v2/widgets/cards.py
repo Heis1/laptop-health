@@ -6,6 +6,7 @@ from PySide6.QtWidgets import QPushButton, QFrame, QHBoxLayout, QLabel, QStyle, 
 
 from ui_v2.widgets.sparkline import Sparkline
 from ui_v2.widgets.ring import Ring
+from ui_v2.services.updates import UPDATE_ACCENT_RGBA, classify_update_status
 
 ICON_MAP = {
     "CPU": QStyle.SP_ComputerIcon,
@@ -219,34 +220,30 @@ class UpdatesCard(QFrame):
         outer.addLayout(foot)
         outer.addStretch(1)
 
-    def set_updates(self, total, security=None, reboot=None):
+    def set_updates(self, total, security=None, reboot=None, kept_back=0, held=0, badge=None, accent=None):
         if total is None:
             self.big.setText("—")
             self.row_updates.setText("Updates Available: —")
             self.row_security.setText("Security Updates: —")
             self.row_reboot.setText("Reboot Required: —")
-            self.badge.setText("Unknown")
-            self.setProperty("accent", "red")
-            self.style().unpolish(self); self.style().polish(self); self.update()
-            return
-
-        tot = int(total)
-        sec = 0 if security is None else int(security)
-        reb = False if reboot is None else bool(reboot)
-
-        self.big.setText(str(tot))
-        self.row_updates.setText(f"Updates Available: {tot}")
-        self.row_security.setText(f"Security Updates: {sec}")
-        self.row_reboot.setText("Reboot Required: Yes" if reb else "Reboot Required: No")
-
-        if tot == 0 and not reb:
-            self.badge.setText("OK")
-            accent = "green"
+            status_badge, status_accent = classify_update_status(None, security, bool(reboot), kept_back, held)
         else:
-            self.badge.setText("Attention")
-            accent = "red" if (sec > 0 or reb) else "orange"
+            tot = int(total)
+            sec = 0 if security is None else int(security)
+            reb = False if reboot is None else bool(reboot)
 
-        self.setProperty("accent", accent)
+            self.big.setText(str(tot))
+            self.row_updates.setText(f"Updates Available: {tot}")
+            self.row_security.setText(f"Security Updates: {sec}")
+            self.row_reboot.setText("Reboot Required: Yes" if reb else "Reboot Required: No")
+            status_badge, status_accent = classify_update_status(tot, sec, reb, int(kept_back or 0), int(held or 0))
+
+        status_badge = badge or status_badge
+        status_accent = accent or status_accent
+        self.badge.setText(status_badge)
+        self.badge.setStyleSheet(f"color: {UPDATE_ACCENT_RGBA.get(status_accent, 'rgba(255,255,255,0.85)')};")
+
+        self.setProperty("accent", status_accent)
         self.style().unpolish(self)
         self.style().polish(self)
         self.update()
