@@ -8,7 +8,7 @@ from PySide6.QtWidgets import (
 )
 
 from ui_v2.qtworker import QtWorker
-from ui_v2.services.updates import get_update_count, reboot_required, list_upgradable, run_apt_action
+from ui_v2.services.updates import get_update_count, reboot_required, list_upgradable, run_apt_action, list_kept_back, list_holds
 
 
 _ACCENT_STRIP = {
@@ -310,6 +310,8 @@ class UpdatesPage(QWidget):
         self.lbl_total = QLabel("Total: —"); self.lbl_total.setObjectName("CardSub"); st.addWidget(self.lbl_total)
         self.lbl_sec = QLabel("Security: —"); self.lbl_sec.setObjectName("CardSub"); st.addWidget(self.lbl_sec)
         self.lbl_reboot = QLabel("Reboot: —"); self.lbl_reboot.setObjectName("CardSub"); st.addWidget(self.lbl_reboot)
+        self.lbl_kept = QLabel("Kept back: —"); self.lbl_kept.setObjectName("CardSub"); st.addWidget(self.lbl_kept)
+        self.lbl_held = QLabel("Held: —"); self.lbl_held.setObjectName("CardSub"); st.addWidget(self.lbl_held)
         st.addStretch(1)
         self.badge = QLabel("—"); self.badge.setObjectName("Badge"); st.addWidget(self.badge)
         root.addWidget(self.status)
@@ -346,13 +348,14 @@ class UpdatesPage(QWidget):
         for b in (self.btn_refresh, self.btn_update_lists, self.btn_upgrade, self.btn_full, self.btn_autoremove):
             b.setFont(base_font)
 
-        self.table = QTableWidget(0, 3)
+        self.table = QTableWidget(0, 4)
         self.table.setObjectName("UpdatesTable")
         self.table.setStyleSheet(_TABLE_QSS)
-        self.table.setHorizontalHeaderLabels(["Package", "Origin", "Security"])
+        self.table.setHorizontalHeaderLabels(["Package", "Origin", "Security", "Status"])
         self.table.horizontalHeader().setSectionResizeMode(0, QHeaderView.Stretch)
         self.table.horizontalHeader().setSectionResizeMode(1, QHeaderView.Stretch)
         self.table.horizontalHeader().setSectionResizeMode(2, QHeaderView.ResizeToContents)
+        self.table.horizontalHeader().setSectionResizeMode(3, QHeaderView.ResizeToContents)
         self.table.verticalHeader().setVisible(False)
         self.table.setSelectionBehavior(QTableWidget.SelectRows)
         self.table.setEditTriggers(QTableWidget.NoEditTriggers)
@@ -392,11 +395,13 @@ class UpdatesPage(QWidget):
         col = _ACCENT_STRIP.get(accent, "rgba(255,255,255,0.85)")
         self.badge.setStyleSheet(f"color: {col};")
 
-    def _set_status(self, total: int | None, sec: int | None, reb: bool):
+    def _set_status(self, total: int | None, sec: int | None, reb: bool, kept: int = 0, held: int = 0):
         if total is None:
             self.lbl_total.setText("Total: —")
             self.lbl_sec.setText("Security: —")
             self.lbl_reboot.setText("Reboot: —")
+            self.lbl_kept.setText("Kept back: —")
+            self.lbl_held.setText("Held: —")
             accent = "red"
             self._set_badge("Unknown", accent)
         else:
@@ -405,12 +410,15 @@ class UpdatesPage(QWidget):
             self.lbl_total.setText(f"Total: {total}")
             self.lbl_sec.setText(f"Security: {sec}")
             self.lbl_reboot.setText("Reboot: Yes" if reb else "Reboot: No")
+            self.lbl_kept.setText(f"Kept back: {kept}")
+            self.lbl_held.setText(f"Held: {held}")
 
-            if total == 0 and not reb:
+            if total == 0 and kept == 0 and not reb:
                 accent = "green"
                 self._set_badge("OK", accent)
             else:
                 accent = "red" if (sec > 0 or reb) else "orange"
+                self._set_badge("Attention", accent)
                 self._set_badge("Attention", accent)
 
         self.status.setProperty("accent", accent)
@@ -418,7 +426,7 @@ class UpdatesPage(QWidget):
         self.status.style().polish(self.status)
         self.status.update()
 
-    def _fill_table(self, items: list[dict]):
+    def _fill_table(self, items: list[dict], kept_set: set[str] | None = None, held_set: set[str] | None = None):
         self.table.setRowCount(0)
         for it in items:
             r = self.table.rowCount()
@@ -434,9 +442,21 @@ class UpdatesPage(QWidget):
                 f = name.font(); f.setBold(True)
                 name.setFont(f); origin.setFont(f); sec.setFont(f)
 
+            status_txt = "Kept back" if (kept_set and name.text() in kept_set) else "Upgradable"
+            if held_set and name.text() in held_set:
+                status_txt = "Held"
+            status = QTableWidgetItem(status_txt)
+            status.setTextAlignment(Qt.AlignCenter)
+
+            # Emphasis: kept back/held should stand out a bit
+            if status_txt != "Upgradable":
+                f2 = status.font(); f2.setBold(True)
+                status.setFont(f2)
+
             self.table.setItem(r, 0, name)
             self.table.setItem(r, 1, origin)
             self.table.setItem(r, 2, sec)
+            self.table.setItem(r, 3, status)
 
     def _append_log(self, text: str):
         if text:
@@ -447,7 +467,9 @@ class UpdatesPage(QWidget):
             total, sec = get_update_count()
             reb = reboot_required()
             items = list_upgradable()
-            return total, sec, reb, items
+            kept = list_kept_back()
+            held = list_holds()
+            return total, sec, reb, items, kept, held
 
         w = QtWorker(job)
         w.signals.result.connect(self._on_refresh)
@@ -456,9 +478,11 @@ class UpdatesPage(QWidget):
         self._start_worker(w)
 
     def _on_refresh(self, res):
-        total, sec, reb, items = res
-        self._set_status(total, sec, reb)
-        self._fill_table(items)
+        total, sec, reb, items, kept, held = res
+        kept_set = set(kept or [])
+        held_set = set(held or [])
+        self._set_status(total, sec, reb, len(kept_set), len(held_set))
+        self._fill_table(items, kept_set, held_set)
 
     def _confirm_and_run(self, action: str):
         messages = {
