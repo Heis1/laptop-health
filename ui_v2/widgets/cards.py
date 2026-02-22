@@ -1,7 +1,7 @@
 from __future__ import annotations
 from typing import Optional
 from PySide6.QtCore import Qt, Signal
-from PySide6.QtGui import QIcon
+from PySide6.QtGui import QIcon, QFont
 from PySide6.QtWidgets import QPushButton, QFrame, QHBoxLayout, QLabel, QStyle, QVBoxLayout, QWidget
 
 from ui_v2.widgets.sparkline import Sparkline
@@ -111,10 +111,15 @@ class MetricCard(QFrame):
 
 
 
+
+
+
 class UpdatesCard(QFrame):
     """
-    Overview Pending Updates card.
-    Shows summary + link to detailed Updates page.
+    Overview Pending Updates (mock-style use of space):
+      - Huge count on the left
+      - 3-line list on the right (Updates/Security/Reboot)
+      - View details button (styled) + updates icon
     """
     details_requested = Signal()
 
@@ -130,6 +135,8 @@ class UpdatesCard(QFrame):
 
         # Header
         hdr = QHBoxLayout()
+        hdr.setSpacing(10)
+
         ico = QLabel()
         ico.setPixmap(self.style().standardIcon(QStyle.SP_MessageBoxWarning).pixmap(18, 18))
         hdr.addWidget(ico)
@@ -145,68 +152,99 @@ class UpdatesCard(QFrame):
 
         outer.addLayout(hdr)
 
-        # Summary
-        self.summary = QLabel("—")
-        self.summary.setObjectName("CardSub")
-        outer.addWidget(self.summary)
+        # Body: big number + list
+        body = QHBoxLayout()
+        body.setSpacing(16)
 
-        # Rows
-        self.rows = {}
+        self.big = QLabel("—")
+        self.big.setAlignment(Qt.AlignLeft | Qt.AlignTop)
+        f = QFont()
+        f.setBold(True)
+        f.setPointSize(34)  # big, uses the space
+        self.big.setFont(f)
+        self.big.setStyleSheet("color: rgba(255,255,255,0.96);")
+        body.addWidget(self.big, 0)
 
-        def add_row(label: str):
-            row = QHBoxLayout()
-            lbl = QLabel(label)
-            lbl.setObjectName("CardSub")
-            val = QLabel("—")
-            val.setObjectName("CardSub")
-            row.addWidget(lbl)
-            row.addStretch(1)
-            row.addWidget(val)
-            outer.addLayout(row)
-            self.rows[label] = val
+        right = QVBoxLayout()
+        right.setSpacing(6)
 
-        add_row("Updates Available")
-        add_row("Security Updates")
-        add_row("Reboot Required")
+        self.row_updates = QLabel("Updates Available: —")
+        self.row_updates.setObjectName("CardSub")
+        right.addWidget(self.row_updates)
 
-        # View details button
-        btn_row = QHBoxLayout()
-        btn_row.addStretch(1)
+        self.row_security = QLabel("Security Updates: —")
+        self.row_security.setObjectName("CardSub")
+        right.addWidget(self.row_security)
+
+        self.row_reboot = QLabel("Reboot Required: —")
+        self.row_reboot.setObjectName("CardSub")
+        right.addWidget(self.row_reboot)
+
+        right.addStretch(1)
+        body.addLayout(right, 1)
+
+        outer.addLayout(body)
+
+        # Footer button (styled + icon)
+        foot = QHBoxLayout()
+        foot.addStretch(1)
 
         self.btn_details = QPushButton("View details")
-        self.btn_details.setObjectName("copybtn")
+        self.btn_details.setCursor(Qt.PointingHandCursor)
+
+        # Icon: use a standard refresh/updates glyph
+        self.btn_details.setIcon(self.style().standardIcon(QStyle.SP_BrowserReload))
+
+        # Make it match dashboard polish (avoid default button look)
+        self.btn_details.setStyleSheet("""
+            QPushButton {
+                color: rgba(255,255,255,0.92);
+                background: rgba(255,255,255,0.08);
+                border: 1px solid rgba(255,255,255,0.14);
+                padding: 6px 12px;
+                border-radius: 10px;
+            }
+            QPushButton:hover {
+                background: rgba(255,255,255,0.12);
+                border: 1px solid rgba(255,255,255,0.18);
+            }
+            QPushButton:pressed {
+                background: rgba(255,255,255,0.06);
+            }
+        """)
+
         self.btn_details.clicked.connect(self.details_requested.emit)
+        foot.addWidget(self.btn_details)
 
-        btn_row.addWidget(self.btn_details)
-        outer.addLayout(btn_row)
-
+        outer.addLayout(foot)
         outer.addStretch(1)
 
     def set_updates(self, total, security=None, reboot=None):
         if total is None:
-            self.summary.setText("Update status unavailable")
+            self.big.setText("—")
+            self.row_updates.setText("Updates Available: —")
+            self.row_security.setText("Security Updates: —")
+            self.row_reboot.setText("Reboot Required: —")
             self.badge.setText("Unknown")
+            self.setProperty("accent", "red")
+            self.style().unpolish(self); self.style().polish(self); self.update()
             return
 
-        total = int(total)
-        security = 0 if security is None else int(security)
-        reboot = False if reboot is None else bool(reboot)
+        tot = int(total)
+        sec = 0 if security is None else int(security)
+        reb = False if reboot is None else bool(reboot)
 
-        self.rows["Updates Available"].setText(str(total))
-        self.rows["Security Updates"].setText(str(security))
-        self.rows["Reboot Required"].setText("Yes" if reboot else "No")
+        self.big.setText(str(tot))
+        self.row_updates.setText(f"Updates Available: {tot}")
+        self.row_security.setText(f"Security Updates: {sec}")
+        self.row_reboot.setText("Reboot Required: Yes" if reb else "Reboot Required: No")
 
-        if total == 0 and not reboot:
-            self.summary.setText("System is up to date")
+        if tot == 0 and not reb:
             self.badge.setText("OK")
             accent = "green"
         else:
-            if security > 0:
-                self.summary.setText(f"{total} updates pending ({security} security)")
-            else:
-                self.summary.setText(f"{total} updates pending")
             self.badge.setText("Attention")
-            accent = "red" if (security > 0 or reboot) else "orange"
+            accent = "red" if (sec > 0 or reb) else "orange"
 
         self.setProperty("accent", accent)
         self.style().unpolish(self)
