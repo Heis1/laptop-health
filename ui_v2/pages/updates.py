@@ -8,7 +8,14 @@ from PySide6.QtWidgets import (
 )
 
 from ui_v2.qtworker import QtWorker
-from ui_v2.services.updates import get_update_count, reboot_required, list_upgradable, run_apt_action, list_kept_back, list_holds
+from ui_v2.services.updates import (
+    get_update_count,
+    reboot_required,
+    list_upgradable,
+    run_apt_action,
+    list_kept_back,
+    list_holds,
+)
 
 
 _ACCENT_STRIP = {
@@ -125,7 +132,6 @@ def _mk_btn(text: str, icon, tip: str) -> QPushButton:
     b.setCursor(Qt.PointingHandCursor)
     b.setToolTip(tip)
     return b
-
 
 
 class ConfirmDialog(QDialog):
@@ -323,20 +329,23 @@ class UpdatesPage(QWidget):
         tb.setContentsMargins(12, 10, 12, 10)
         tb.setSpacing(10)
 
-        self.btn_update_lists = _mk_btn("Update lists", self.style().standardIcon(QStyle.SP_BrowserReload), "Runs: apt update")
+        self.btn_update_lists = _mk_btn("Update lists", self.style().standardIcon(QStyle.SP_BrowserReload), "Runs: apt-get update")
         self.btn_update_lists.clicked.connect(lambda: self._confirm_and_run("update"))
         tb.addWidget(self.btn_update_lists)
 
-        self.btn_upgrade = _mk_btn("Upgrade", self.style().standardIcon(QStyle.SP_ArrowUp), "Runs: apt -y upgrade")
+        self.btn_upgrade = _mk_btn("Upgrade", self.style().standardIcon(QStyle.SP_ArrowUp), "Runs: apt-get -y upgrade")
         self.btn_upgrade.clicked.connect(lambda: self._confirm_and_run("upgrade"))
         tb.addWidget(self.btn_upgrade)
 
-        self.btn_full = _mk_btn("Full upgrade", self.style().standardIcon(QStyle.SP_DialogApplyButton),
-                                "Runs: apt -y full-upgrade (may remove/replace packages)")
+        self.btn_full = _mk_btn(
+            "Full upgrade",
+            self.style().standardIcon(QStyle.SP_DialogApplyButton),
+            "Runs: apt-get -y dist-upgrade (may remove/replace packages)",
+        )
         self.btn_full.clicked.connect(lambda: self._confirm_and_run("full-upgrade"))
         tb.addWidget(self.btn_full)
 
-        self.btn_autoremove = _mk_btn("Autoremove", self.style().standardIcon(QStyle.SP_TrashIcon), "Runs: apt -y autoremove")
+        self.btn_autoremove = _mk_btn("Autoremove", self.style().standardIcon(QStyle.SP_TrashIcon), "Runs: apt-get -y autoremove")
         self.btn_autoremove.clicked.connect(lambda: self._confirm_and_run("autoremove"))
         tb.addWidget(self.btn_autoremove)
 
@@ -391,9 +400,20 @@ class UpdatesPage(QWidget):
         self.refresh()
 
     def _set_badge(self, text: str, accent: str):
+        # Premium badge: bold + pill + subtle tint so it actually pops
         self.badge.setText(text)
         col = _ACCENT_STRIP.get(accent, "rgba(255,255,255,0.85)")
-        self.badge.setStyleSheet(f"color: {col};")
+        # Use same accent for border + soft background
+        self.badge.setStyleSheet(
+            "font-weight: 800;"
+            "letter-spacing: 0.3px;"
+            "padding: 4px 10px;"
+            "border-radius: 999px;"
+            f"color: {col};"
+            f"border: 1px solid {col};"
+            # A very subtle wash behind the badge
+            "background: rgba(255,255,255,0.06);"
+        )
 
     def _set_status(self, total: int | None, sec: int | None, reb: bool, kept: int = 0, held: int = 0):
         if total is None:
@@ -413,18 +433,51 @@ class UpdatesPage(QWidget):
             self.lbl_kept.setText(f"Kept back: {kept}")
             self.lbl_held.setText(f"Held: {held}")
 
-            if total == 0 and kept == 0 and not reb:
+            if total == 0 and kept == 0 and held == 0 and not reb:
                 accent = "green"
-                self._set_badge("OK", accent)
+                self._set_badge("No updates available", accent)
             else:
-                accent = "red" if (sec > 0 or reb) else "orange"
-                self._set_badge("Attention", accent)
-                self._set_badge("Attention", accent)
+                # Priority: Held > Reboot/Security > Kept back > Updates available
+                if held > 0:
+                    accent = "red"
+                    self._set_badge("HELD PACKAGES", accent)
+                elif reb and sec > 0:
+                    accent = "red"
+                    self._set_badge("REBOOT + SECURITY", accent)
+                elif reb:
+                    accent = "red"
+                    self._set_badge("REBOOT REQUIRED", accent)
+                elif sec > 0:
+                    accent = "red"
+                    self._set_badge("SECURITY UPDATES", accent)
+                elif kept > 0:
+                    accent = "orange"
+                    self._set_badge("KEPT BACK", accent)
+                else:
+                    accent = "orange"
+                    self._set_badge("UPDATES AVAILABLE", accent)
+
+        # Premium accent border so state is obvious at a glance (especially "no updates")
+        strip = _ACCENT_STRIP.get(accent, "rgba(255,255,255,0.14)")
+        self.status.setStyleSheet(
+            "background: rgba(255,255,255,0.02);"
+            "border-radius: 16px;"
+            "border: 1px solid rgba(255,255,255,0.14);"
+            f"border-left: 6px solid {strip};"
+        )
 
         self.status.setProperty("accent", accent)
         self.status.style().unpolish(self.status)
         self.status.style().polish(self.status)
         self.status.update()
+
+    def _tint_row(self, r: int, bg: QColor | None = None):
+        for c in range(self.table.columnCount()):
+            it = self.table.item(r, c)
+            if it is None:
+                continue
+            if bg is not None:
+                it.setBackground(bg)
 
     def _fill_table(self, items: list[dict], kept_set: set[str] | None = None, held_set: set[str] | None = None):
         self.table.setRowCount(0)
@@ -432,8 +485,12 @@ class UpdatesPage(QWidget):
             r = self.table.rowCount()
             self.table.insertRow(r)
 
-            name = QTableWidgetItem(it.get("name", ""))
-            origin = QTableWidgetItem(it.get("origin", ""))
+            pkg_name = str(it.get("name", ""))
+            origin_txt = str(it.get("origin", ""))
+
+            name = QTableWidgetItem(pkg_name)
+            origin = QTableWidgetItem(origin_txt)
+
             sec_flag = bool(it.get("security"))
             sec = QTableWidgetItem("Yes" if sec_flag else "No")
             sec.setTextAlignment(Qt.AlignCenter)
@@ -442,32 +499,40 @@ class UpdatesPage(QWidget):
                 f = name.font(); f.setBold(True)
                 name.setFont(f); origin.setFont(f); sec.setFont(f)
 
-            status_txt = "Kept back" if (kept_set and name.text() in kept_set) else "Upgradable"
-            if held_set and name.text() in held_set:
+            is_kept = bool(kept_set and pkg_name in kept_set)
+            is_held = bool(held_set and pkg_name in held_set)
+
+            status_txt = "Upgradable"
+            if is_kept:
+                status_txt = "Kept back"
+            if is_held:
                 status_txt = "Held"
+
             status = QTableWidgetItem(status_txt)
-            # Premium tinting for status
-            if status_txt == "Kept back":
-                status.setForeground(QColor(255, 190, 120))  # orange tint
-            elif status_txt == "Held":
-                status.setForeground(QColor(255, 130, 130))  # red tint
-
             status.setTextAlignment(Qt.AlignCenter)
-
-            # Emphasis: kept back/held should stand out a bit
-            if status_txt != "Upgradable":
-                f2 = status.font(); f2.setBold(True)
-                status.setFont(f2)
-                # Subtle emphasis on the package name for clarity
-                if status_txt == "Kept back":
-                    name.setForeground(QColor(255, 210, 160))
-                elif status_txt == "Held":
-                    name.setForeground(QColor(255, 160, 160))
 
             self.table.setItem(r, 0, name)
             self.table.setItem(r, 1, origin)
             self.table.setItem(r, 2, sec)
             self.table.setItem(r, 3, status)
+
+            # Premium tinting (row-level + status color)
+            if is_held:
+                status.setForeground(QColor(255, 150, 150))
+                self._tint_row(r, bg=QColor(255, 120, 120, 28))
+            elif is_kept:
+                status.setForeground(QColor(255, 205, 150))
+                self._tint_row(r, bg=QColor(255, 190, 120, 22))
+            elif sec_flag:
+                # subtle wash for security rows (still readable)
+                self._tint_row(r, bg=QColor(150, 190, 255, 16))
+
+            # Emphasis: kept back/held should stand out a bit
+            if status_txt != "Upgradable":
+                f2 = status.font(); f2.setBold(True)
+                status.setFont(f2)
+                f3 = name.font(); f3.setBold(True)
+                name.setFont(f3)
 
     def _append_log(self, text: str):
         if text:
@@ -497,10 +562,10 @@ class UpdatesPage(QWidget):
 
     def _confirm_and_run(self, action: str):
         messages = {
-            "update": "This will update package lists (apt update).\n\nAdministrator privileges required.\nYou may be prompted for your password.",
-            "upgrade": "This will install available upgrades (apt -y upgrade).\n\nAdministrator privileges required.\nYou may be prompted for your password.",
-            "full-upgrade": "This will perform a full upgrade (apt -y full-upgrade).\nIt may remove or replace packages.\n\nAdministrator privileges required.\nYou may be prompted for your password.",
-            "autoremove": "This will remove unused packages (apt -y autoremove).\n\nAdministrator privileges required.\nYou may be prompted for your password.",
+            "update": "This will update package lists (apt-get update).\n\nAdministrator privileges required.\nYou may be prompted for your password.",
+            "upgrade": "This will install available upgrades (apt-get -y upgrade).\n\nAdministrator privileges required.\nYou may be prompted for your password.",
+            "full-upgrade": "This will perform a full upgrade (apt-get -y dist-upgrade).\nIt may remove or replace packages.\n\nAdministrator privileges required.\nYou may be prompted for your password.",
+            "autoremove": "This will remove unused packages (apt-get -y autoremove).\n\nAdministrator privileges required.\nYou may be prompted for your password.",
         }
 
         accent = "red" if action == "full-upgrade" else "orange"
