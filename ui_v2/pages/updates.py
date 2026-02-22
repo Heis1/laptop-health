@@ -8,16 +8,19 @@ from PySide6.QtWidgets import (
 )
 
 from ui_v2.qtworker import QtWorker
-from ui_v2.services.updates import get_update_count, reboot_required, list_upgradable, run_apt_action, list_kept_back, list_holds
+from ui_v2.services.updates import (
+    UPDATE_ACCENT_RGBA,
+    classify_update_status,
+    get_update_count,
+    reboot_required,
+    list_upgradable,
+    run_apt_action,
+    list_kept_back,
+    list_holds,
+)
 
 
-_ACCENT_STRIP = {
-    "green": "rgba(120, 255, 190, 0.95)",
-    "orange": "rgba(255, 190, 120, 0.95)",
-    "red": "rgba(255, 130, 130, 0.95)",
-    "blue": "rgba(150, 190, 255, 0.95)",
-    "purple": "rgba(200, 170, 255, 0.95)",
-}
+_ACCENT_STRIP = UPDATE_ACCENT_RGBA
 
 _PAGE_QSS = """
 QPushButton#ActionBtn {
@@ -402,8 +405,6 @@ class UpdatesPage(QWidget):
             self.lbl_reboot.setText("Reboot: —")
             self.lbl_kept.setText("Kept back: —")
             self.lbl_held.setText("Held: —")
-            accent = "red"
-            self._set_badge("Unknown", accent)
         else:
             total = int(total)
             sec = 0 if sec is None else int(sec)
@@ -413,13 +414,8 @@ class UpdatesPage(QWidget):
             self.lbl_kept.setText(f"Kept back: {kept}")
             self.lbl_held.setText(f"Held: {held}")
 
-            if total == 0 and kept == 0 and not reb:
-                accent = "green"
-                self._set_badge("OK", accent)
-            else:
-                accent = "red" if (sec > 0 or reb) else "orange"
-                self._set_badge("Attention", accent)
-                self._set_badge("Attention", accent)
+        badge, accent = classify_update_status(total, sec, reb, kept, held)
+        self._set_badge(badge, accent)
 
         self.status.setProperty("accent", accent)
         self.status.style().unpolish(self.status)
