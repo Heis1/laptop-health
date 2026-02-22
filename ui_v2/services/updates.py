@@ -21,37 +21,69 @@ def _run(cmd: list[str], timeout: int = 15) -> tuple[int, str]:
         return 1, str(e)
 
 
-def get_update_count() -> Tuple[int | None, int | None]:
-    rc, out = _run(["bash", "-lc", "apt list --upgradable 2>/dev/null | tail -n +2"])
-    if rc != 0:
-        return None, None
-    lines = [l for l in out.splitlines() if l.strip()]
-    total = len(lines)
-    security = sum(1 for l in lines if "-security" in l)
-    return total, security
-
-
-def list_upgradable() -> list[dict]:
-    rc, out = _run(["bash", "-lc", "apt list --upgradable 2>/dev/null | tail -n +2"])
-    if rc != 0 or not out:
-        return []
+def _parse_upgrade_sim(out: str) -> list[dict]:
+    """
+    Parse `apt-get -s upgrade` output into items:
+      - name
+      - origin (best-effort)
+      - security (best-effort: origin mentions security)
+      - raw
+    """
     items: list[dict] = []
-    for line in out.splitlines():
-        if not line.strip():
+    for line in (out or "").splitlines():
+        line = line.strip()
+        if not line.startswith("Inst "):
             continue
-        first = line.split(maxsplit=1)[0]
-        if "/" in first:
-            name, origin = first.split("/", 1)
-        else:
-            name, origin = first, ""
-        security = "-security" in line or "-security" in origin
+
+        parts = line.split()
+        if len(parts) < 2:
+            continue
+        name = parts[1].strip()
+
+        origin = ""
+        if "(" in line and ")" in line:
+            try:
+                inside = line.split("(", 1)[1].rsplit(")", 1)[0].strip()
+                # inside commonly: "<newver> <repo ...> [arch]"
+                # keep everything after version token as "origin"
+                toks = inside.split(maxsplit=1)
+                if len(toks) == 2:
+                    origin = toks[1].strip()
+            except Exception:
+                origin = ""
+
+        low = (origin or "").lower()
+        security = ("security" in low) or ("-security" in low)
+
         items.append({"name": name, "origin": origin, "security": security, "raw": line})
     return items
 
 
+def list_upgradable() -> list[dict]:
+    # Use apt-get simulation (stable for scripting, no actual changes)
+    rc, out = _run(["bash", "-lc", "apt-get -s upgrade 2>/dev/null"], timeout=25)
+    if rc != 0 or not out:
+        return []
+    return _parse_upgrade_sim(out)
+
+
+def get_update_count() -> Tuple[int | None, int | None]:
+    items = list_upgradable()
+    if not items:
+        # Could be genuinely 0 updates OR a failure.
+        # Disambiguate by checking the command return code quickly.
+        rc, _ = _run(["bash", "-lc", "apt-get -s upgrade 2>/dev/null"], timeout=10)
+        if rc != 0:
+            return None, None
+        return 0, 0
+    total = len(items)
+    security = sum(1 for it in items if bool(it.get("security")))
+    return total, security
+
+
 def list_kept_back() -> list[str]:
     # Parse kept-back list from apt-get simulation output
-    rc, out = _run(["bash", "-lc", "apt-get -s upgrade 2>/dev/null"], timeout=20)
+    rc, out = _run(["bash", "-lc", "apt-get -s upgrade 2>/dev/null"], timeout=25)
     if rc != 0 or not out:
         return []
     kept: list[str] = []
