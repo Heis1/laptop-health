@@ -60,10 +60,14 @@ class CpuDetailsCard(QFrame):
         outer.addWidget(self.v_label)
         outer.addWidget(self.v_value)
 
-        # Frequency chart
-        self.freq_label = QLabel("Frequency Chart")
+        # Frequency: label + numeric value + chart
+        self.freq_label = QLabel("Frequency")
         self.freq_label.setObjectName("CardSub")
         outer.addWidget(self.freq_label)
+
+        self.freq_value = QLabel("— GHz")
+        self.freq_value.setObjectName("CardBig")  # big white number
+        outer.addWidget(self.freq_value)
 
         self._freq_hist = deque([0.0] * 36, maxlen=36)
         self.spark = Sparkline(list(self._freq_hist), accent="green")
@@ -97,7 +101,9 @@ class CpuDetailsCard(QFrame):
 
         f = getattr(m, "cpu_freq_ghz", None)
         if isinstance(f, (int, float)):
-            self._freq_hist.append(_norm01(float(f), 0.4, 4.8))
+            ghz = float(f)
+            self.freq_value.setText(f"{ghz:.2f} GHz")
+            self._freq_hist.append(_norm01(ghz, 0.4, 4.8))
             try:
                 if hasattr(self.spark, "set_points"):
                     self.spark.set_points(list(self._freq_hist))
@@ -106,3 +112,5 @@ class CpuDetailsCard(QFrame):
                     self.spark.update()
             except Exception:
                 pass
+        else:
+            self.freq_value.setText("— GHz")
