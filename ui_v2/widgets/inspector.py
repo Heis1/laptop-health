@@ -6,7 +6,7 @@ from PySide6.QtWidgets import (
 from ui_v2.widgets.cards import MetricCard
 from ui_v2.widgets.shadow import apply_card_shadow
 from ui_v2.widgets.cpu_details_card import CpuDetailsCard
-
+from ui_v2.widgets.disk_info_card import DiskInfoCard
 class Inspector(QFrame):
     def __init__(self):
         super().__init__()
@@ -52,17 +52,17 @@ class Inspector(QFrame):
 
         # Three mini panels
         self.cpu_details = CpuDetailsCard()
-        disk = MetricCard(
-            "Disk Info", "Disk Info", "Root used • Journal • SMART",
-            "purple", spark_points=[0.12,0.18,0.15,0.22,0.19,0.27,0.24]
-        )
+        self.disk = DiskInfoCard()
         wake = MetricCard(
-            "Wakeup Analysis", "Wakeup Analysis", "Top offender • Suggestions • Chart",
-            "orange", spark_points=[0.15,0.45,0.22,0.62,0.3,0.75,0.4]
+            "Wakeup Analysis",
+            "Wakeup Analysis",
+            "Top offender • Suggestions • Chart",
+            "orange",
+            spark_points=[0.15,0.45,0.22,0.62,0.3,0.75,0.4]
         )
 
         grid.addWidget(self.cpu_details, 0, 0)
-        grid.addWidget(disk, 0, 1)
+        grid.addWidget(self.disk, 0, 1)
         grid.addWidget(wake, 0, 2)
 
         container_layout.addLayout(grid)
@@ -79,6 +79,9 @@ class Inspector(QFrame):
         try:
             w = getattr(self, "cpu_details", None)
             if w is not None and hasattr(w, "update_overview"):
-                w.update_overview(m)
+                                w.update_overview(m)
+            d = getattr(self, "disk", None)
+            if d is not None and hasattr(d, "set_disk"):
+                d.set_disk(getattr(m, "root_used_pct", None), getattr(m, "root_free_gb", None))
         except Exception:
             pass
