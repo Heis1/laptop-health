@@ -1,127 +1,112 @@
-Laptop Health
+# Laptop Health
 
-A modern Linux system health dashboard for laptops.
+A lightweight Linux system health dashboard for laptops.
 
-Laptop Health provides a clean, modular interface for monitoring system performance, thermals, storage, network activity, and power state — built with PySide6 and designed for Linux Mint / Ubuntu environments.
+Laptop Health provides a clean, modern interface for monitoring system performance, thermals, and power state — built with PySide6 and designed for Linux Mint / Ubuntu environments.
 
-🚀 Project Status
+## Project Status
 
-Current stable release: main branch
-Next-generation UI (v2) in development: feature/new-dashboard-ui
+Production releases live on: `main`
 
-UI v2 introduces a redesigned dashboard architecture with modular services, live sparklines, improved updates handling, and enhanced system insight cards.
+UI v2 development is happening on: `feature/new-dashboard-ui`
 
 To preview UI v2:
 
-git checkout feature/new-dashboard-ui
-python ui_preview_v2.py
-✨ Features (Stable)
+    git checkout feature/new-dashboard-ui
+    python ui_preview_v2.py
 
-CPU temperature and load monitoring
+## Features
 
-GPU and SSD temperature visibility
+- CPU temperature and load monitoring
+- GPU and SSD temperature visibility
+- Wake-up / power state awareness
+- Power profile detection
+- Network diagnostics module
+- Optional speed testing support
+- Dark mode support
+- Clean, card-based UI layout
 
-Wake-up / power state awareness
+## Installation (Debian / Ubuntu / Mint)
 
-Power profile detection
-
-Network diagnostics module
-
-Optional speed testing support
-
-Dark mode support
-
-Clean, card-based UI layout
-
-📦 Installation (Debian / Ubuntu / Mint)
-
-Download the latest .deb from the Releases page.
+Download the latest `.deb` from the Releases page.
 
 Install using:
 
-sudo apt install ./laptop-health_0.4.0-9_amd64.deb
+    sudo apt install ./laptop-health_0.4.0-9_amd64.deb
 
-Or manually:
+If installing manually:
 
-sudo dpkg -i laptop-health_0.4.0-9_amd64.deb
-sudo apt -f install
-🔧 Runtime Dependencies
+    sudo dpkg -i laptop-health_0.4.0-9_amd64.deb
+    sudo apt -f install
+
+## Runtime Dependencies
 
 Laptop Health relies on the following system tools:
 
-lm-sensors
-
-powertop
-
-nvme-cli
-
-power-profiles-daemon
-
-network-manager
+- lm-sensors
+- powertop
+- nvme-cli
+- power-profiles-daemon
+- network-manager
 
 Install them if needed:
 
-sudo apt install lm-sensors powertop nvme-cli power-profiles-daemon network-manager
+    sudo apt install lm-sensors powertop nvme-cli power-profiles-daemon network-manager
 
 Optional:
 
-nvidia-smi (for NVIDIA GPUs)
+- nvidia-smi (for NVIDIA GPUs)
+- speedtest (Ookla CLI) or speedtest-cli
 
-speedtest (Ookla CLI) or speedtest-cli
-
-▶ Running
+## Running
 
 After installation:
 
-laptop-health
+    laptop-health
 
-Or from source:
+Or launch it from your desktop application menu.
 
-python main.py
-🧪 Development
+## Development
 
 Clone the repository:
 
-git clone https://github.com/Heis1/laptop-health.git
-cd laptop-health
+    git clone https://github.com/Heis1/laptop-health.git
+    cd laptop-health
 
 Create a development virtual environment:
 
-python3 -m venv .venv
-source .venv/bin/activate
-pip install PySide6 psutil
+    python3 -m venv .venv
+    source .venv/bin/activate
+    pip install PySide6 psutil
 
 Run:
 
-python main.py
-📦 Packaging
+    python main.py
 
-The project uses PyInstaller:
+## Packaging
 
-pyinstaller --noconfirm --clean --name laptop-health main.py
+The project uses PyInstaller to create a self-contained binary:
 
-Debian packaging is handled manually using dpkg-deb.
+    pyinstaller --noconfirm --clean --name laptop-health main.py
 
-🔢 Versioning
+Debian packaging is handled manually using `dpkg-deb`.
 
-Releases follow semantic versioning:
+## Versioning
 
-v0.x.y
+Releases are tagged using semantic versioning:
+
+    v0.x.y
 
 Binary installers are attached to GitHub Releases.
 
-🛣 Roadmap
+## Roadmap
 
-Finalize UI v2 dashboard architecture
+- Improved hardware detection
+- Enhanced GPU support
+- Auto-update checks
+- Additional telemetry modules
+- CI-based automated builds
 
-Expanded updates handling
-
-Additional telemetry modules
-
-CI-based automated builds
-
-Performance tuning & optimization
-
-⚠ Disclaimer
+## Disclaimer
 
 Laptop Health relies on underlying system tools for hardware metrics. Accuracy depends on your system configuration and installed utilities.
