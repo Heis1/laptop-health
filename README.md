@@ -11,11 +11,10 @@ Next-generation UI (v2) in development: feature/new-dashboard-ui
 
 UI v2 introduces a redesigned dashboard architecture with modular services, live sparklines, improved updates handling, and enhanced system insight cards.
 
-You can preview UI v2 by switching to the development branch:
+To preview UI v2:
 
 git checkout feature/new-dashboard-ui
 python ui_preview_v2.py
-
 ✨ Features (Stable)
 
 CPU temperature and load monitoring
@@ -38,7 +37,7 @@ Clean, card-based UI layout
 
 Download the latest .deb from the Releases page.
 
-Install:
+Install using:
 
 sudo apt install ./laptop-health_0.4.0-9_amd64.deb
 
@@ -48,7 +47,7 @@ sudo dpkg -i laptop-health_0.4.0-9_amd64.deb
 sudo apt -f install
 🔧 Runtime Dependencies
 
-Laptop Health relies on:
+Laptop Health relies on the following system tools:
 
 lm-sensors
 
@@ -60,13 +59,13 @@ power-profiles-daemon
 
 network-manager
 
-Install if needed:
+Install them if needed:
 
 sudo apt install lm-sensors powertop nvme-cli power-profiles-daemon network-manager
 
 Optional:
 
-nvidia-smi (NVIDIA GPUs)
+nvidia-smi (for NVIDIA GPUs)
 
 speedtest (Ookla CLI) or speedtest-cli
 
@@ -80,12 +79,19 @@ Or from source:
 
 python main.py
 🧪 Development
+
+Clone the repository:
+
 git clone https://github.com/Heis1/laptop-health.git
 cd laptop-health
+
+Create a development virtual environment:
 
 python3 -m venv .venv
 source .venv/bin/activate
 pip install PySide6 psutil
+
+Run:
 
 python main.py
 📦 Packaging
