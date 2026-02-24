@@ -1,12 +1,27 @@
 from __future__ import annotations
+
+from collections import deque
+import math
+
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
-    QFrame, QGridLayout, QHBoxLayout, QLabel, QToolButton, QVBoxLayout, QWidget
+    QFrame,
+    QGridLayout,
+    QHBoxLayout,
+    QLabel,
+    QToolButton,
+    QVBoxLayout,
+    QSizePolicy,
+    QWidget,
 )
+
 from ui_v2.widgets.cards import MetricCard
 from ui_v2.widgets.shadow import apply_card_shadow
 from ui_v2.widgets.cpu_details_card import CpuDetailsCard
 from ui_v2.widgets.disk_info_card import DiskInfoCard
+from ui_v2.services.wakeups import wakeups_hint_fast, wakeups_hint_deep
+
+
 class Inspector(QFrame):
     def __init__(self):
         super().__init__()
@@ -34,10 +49,14 @@ class Inspector(QFrame):
         hdr.addWidget(dots)
         outer.addLayout(hdr)
 
-        # ----- Bordered container (this is what was missing) -----
+        # ----- Container -----
         self.container = QFrame()
         self.container.setObjectName("InspectorContainer")
         apply_card_shadow(self.container)
+
+        # Don’t eat leftover vertical space
+        self.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Maximum)
+        self.container.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Maximum)
 
         container_layout = QVBoxLayout(self.container)
         container_layout.setContentsMargins(16, 16, 16, 16)
@@ -50,38 +69,137 @@ class Inspector(QFrame):
         grid.setColumnStretch(1, 1)
         grid.setColumnStretch(2, 1)
 
-        # Three mini panels
+        # ----- Cards -----
         self.cpu_details = CpuDetailsCard()
         self.disk = DiskInfoCard()
-        wake = MetricCard(
+
+        # Wakeups: history + scaling
+        self._wake_hist = deque([0.0] * 36, maxlen=36)
+
+        # Right-side info stack (fills the “empty” space)
+        self._wake_info = QWidget()
+        info = QVBoxLayout(self._wake_info)
+        info.setContentsMargins(0, 0, 0, 0)
+        info.setSpacing(6)
+
+        self._wake_line1 = QLabel("✓ Proxy: /proc/stat (fast)")
+        self._wake_line1.setObjectName("CardSub")
+        self._wake_line2 = QLabel("✓ Deep: powertop (needs sudo)")
+        self._wake_line2.setObjectName("CardSub")
+        self._wake_line3 = QLabel("—")
+        self._wake_line3.setObjectName("CardSub")
+
+        info.addWidget(self._wake_line1)
+        info.addWidget(self._wake_line2)
+        info.addWidget(self._wake_line3)
+        info.addStretch(1)
+
+        self.wake = MetricCard(
             "Wakeup Analysis",
-            "Wakeup Analysis",
-            "Top offender • Suggestions • Chart",
-            "orange",
-            spark_points=[0.15,0.45,0.22,0.62,0.3,0.75,0.4]
+            "—",
+            "—",
+            "green",
+            right_widget=self._wake_info,
+            spark_points=list(self._wake_hist),
         )
+
+        # Status circle icon (mock-style)
+        self._wake_icon = QLabel("")
+        self._wake_icon.setFixedSize(14, 14)
+        self._wake_icon.setStyleSheet(
+            "QLabel { background: rgba(92,255,160,0.95); border-radius: 7px; }"
+        )
+
+        # Replace default MetricCard icon with our dot, add spacing
+        hdr_layout = self.wake.layout().itemAt(0).layout()
+        if hdr_layout.count() > 0:
+            item = hdr_layout.takeAt(0)
+            if item and item.widget():
+                item.widget().deleteLater()
+        hdr_layout.insertWidget(0, self._wake_icon)
+        hdr_layout.insertSpacing(1, 6)
+
+        # Wake title slightly stronger
+        t = self.wake.findChild(QLabel, "CardTitle")
+        if t is not None:
+            t.setStyleSheet("font-weight: 600;")
+
+        if getattr(self.wake, "spark", None) is not None:
+            self.wake.spark.setMinimumHeight(58)
 
         grid.addWidget(self.cpu_details, 0, 0)
         grid.addWidget(self.disk, 0, 1)
-        grid.addWidget(wake, 0, 2)
+        grid.addWidget(self.wake, 0, 2)
 
         container_layout.addLayout(grid)
         outer.addWidget(self.container)
 
     def _toggle(self):
         self.container.setVisible(self.toggle.isChecked())
-        self.toggle.setArrowType(
-            Qt.DownArrow if self.toggle.isChecked() else Qt.RightArrow
-        )
+        self.toggle.setArrowType(Qt.DownArrow if self.toggle.isChecked() else Qt.RightArrow)
 
     def update_overview(self, m) -> None:
-        """Receive OverviewMetrics from DashboardPage and fan out to sub-cards."""
         try:
-            w = getattr(self, "cpu_details", None)
-            if w is not None and hasattr(w, "update_overview"):
-                                w.update_overview(m)
-            d = getattr(self, "disk", None)
-            if d is not None and hasattr(d, "set_disk"):
-                d.set_disk(getattr(m, "root_used_pct", None), getattr(m, "root_free_gb", None))
+            if hasattr(self.cpu_details, "update_overview"):
+                self.cpu_details.update_overview(m)
+
+            big = getattr(m, "wakeups_big", "—")  # e.g. "3,229 ctx/s"
+            sub = getattr(m, "wakeups_sub", "—")  # e.g. "4,567 intr/s"
+
+            # Parse numeric ctx/intr
+            try:
+                ctxt_val = float(big.split()[0].replace(",", ""))
+            except Exception:
+                ctxt_val = 0.0
+            try:
+                intr_val = float(sub.split()[0].replace(",", ""))
+            except Exception:
+                intr_val = 0.0
+
+            combined = ctxt_val + intr_val
+
+            # Accent logic (keep your thresholds)
+            if combined > 220000:
+                accent = "red"
+            elif combined > 100000:
+                accent = "orange"
+            else:
+                accent = "green"
+
+            # Better display (more informative, less empty)
+            self.wake.set_values(
+                f"{combined:,.0f} events/s",
+                f"{ctxt_val:,.0f} ctx/s • {intr_val:,.0f} intr/s",
+                accent,
+            )
+
+            # Right info panel (dynamic hints)
+            self._wake_line1.setText(f"✓ {wakeups_hint_fast()}")
+            self._wake_line2.setText(f"✓ {wakeups_hint_deep()}")
+            self._wake_line3.setText("✓ Suggestion: OK" if accent == "green" else "⚠ Suggestion: investigate")
+
+            # Spark: log scale so low values aren’t flat
+            # Cap chosen to show detail in typical ranges; log makes it still usable at higher rates.
+            cap = 50000.0
+            norm = math.log1p(max(0.0, combined)) / math.log1p(cap)
+            norm = max(0.0, min(1.0, float(norm)))
+            self._wake_hist.append(norm)
+            self.wake.set_spark(list(self._wake_hist))
+
+            # Spark follows accent
+            if getattr(self.wake, "spark", None) is not None:
+                self.wake.spark.setProperty("accent", accent)
+                self.wake.spark.update()
+
+            # Icon follows accent
+            color_map = {
+                "green": "rgba(92,255,160,0.95)",
+                "orange": "rgba(255,176,64,0.95)",
+                "red": "rgba(255,92,92,0.95)",
+            }
+            self._wake_icon.setStyleSheet(
+                f"QLabel {{ background: {color_map.get(accent, 'rgba(255,255,255,0.85)')}; border-radius: 7px; }}"
+            )
+
         except Exception:
             pass
