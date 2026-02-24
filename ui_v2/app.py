@@ -5,6 +5,7 @@ from PySide6.QtWidgets import (
 )
 
 from ui_v2.theme import qss
+from ui_v2.widgets.aspect_container import AspectRatioContainer
 from ui_v2.widgets.sidebar import Sidebar
 from ui_v2.pages.dashboard import DashboardPage
 from ui_v2.pages.power import PowerPage
@@ -31,8 +32,10 @@ class MainWindow(QMainWindow):
         self.resize(1280, 820)
 
         root = QWidget()
-        self.setCentralWidget(root)
-
+        # Keep dashboard proportional inside the window (no scrollbars).
+        self._aspect = AspectRatioContainer(ratio=16/9)
+        self._aspect.setWidget(root)
+        self.setCentralWidget(self._aspect)
         main = QHBoxLayout(root)
         main.setContentsMargins(18, 18, 18, 18)
         main.setSpacing(16)
