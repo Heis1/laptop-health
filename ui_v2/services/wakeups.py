@@ -8,6 +8,9 @@ import tempfile
 import time
 
 POWERTOP = shutil.which("powertop") or "/usr/sbin/powertop"
+_last_ctxt: int | None = None
+_last_intr: int | None = None
+_last_sample_ts: float | None = None
 
 def powertop_installed() -> bool:
     return shutil.which("powertop") is not None or os.path.exists("/usr/sbin/powertop")
@@ -41,14 +44,37 @@ def sample_wake_activity_fast(interval_s: float = 1.0) -> dict[str, float]:
       - intr_per_s
     (Wakeups/sec is not directly available without powertop/perf privileges.)
     """
-    interval_s = max(0.5, float(interval_s))
-    c1, i1 = _read_proc_stat_counts()
-    time.sleep(interval_s)
+    global _last_ctxt, _last_intr, _last_sample_ts
+
     c2, i2 = _read_proc_stat_counts()
+    now = time.time()
+
+    if _last_ctxt is None or _last_intr is None or _last_sample_ts is None:
+        _last_ctxt = c2
+        _last_intr = i2
+        _last_sample_ts = now
+        return {"ctxt_per_s": 0.0, "intr_per_s": 0.0}
+
+    delta_t = max(0.000_001, now - _last_sample_ts)
+    delta_ctxt = max(0, c2 - _last_ctxt)
+    delta_intr = max(0, i2 - _last_intr)
+
+    _last_ctxt = c2
+    _last_intr = i2
+    _last_sample_ts = now
+
     return {
-        "ctxt_per_s": max(0.0, (c2 - c1) / interval_s),
-        "intr_per_s": max(0.0, (i2 - i1) / interval_s),
+        "ctxt_per_s": max(0.0, delta_ctxt / delta_t),
+        "intr_per_s": max(0.0, delta_intr / delta_t),
     }
+
+
+def classify_wakeup_proxy(ctxt_per_s: float, intr_per_s: float) -> str:
+    if ctxt_per_s > 200_000 or intr_per_s > 200_000:
+        return "red"
+    if ctxt_per_s > 80_000 or intr_per_s > 80_000:
+        return "orange"
+    return "green"
 
 def wakeups_hint_fast() -> str:
     return "Proxy: ctxt/s + intr/s (fast, no admin)"

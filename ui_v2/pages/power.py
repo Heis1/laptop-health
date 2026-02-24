@@ -9,18 +9,12 @@ from ui_v2.services.wakeups import (
     wakeups_hint_fast,
     wakeups_hint_deep,
     sample_wakeups_powertop_slow,
+    classify_wakeup_proxy,
 )
 from ui_v2.widgets.cards import MetricCard
 from ui_v2.widgets.offender_list import OffenderList
 from ui_v2.workers import Worker
 
-
-def accent_from_proxy(ctxt_per_s: float, intr_per_s: float) -> str:
-    if ctxt_per_s > 200_000 or intr_per_s > 200_000:
-        return "red"
-    if ctxt_per_s > 80_000 or intr_per_s > 80_000:
-        return "orange"
-    return "green"
 
 
 class PowerPage(QWidget):
@@ -89,7 +83,7 @@ class PowerPage(QWidget):
             return
         ctxt = float(result.get("ctxt_per_s", 0.0))
         intr = float(result.get("intr_per_s", 0.0))
-        acc = accent_from_proxy(ctxt, intr)
+        acc = classify_wakeup_proxy(ctxt, intr)
         big = f"{ctxt:,.0f} ctx/s"
         sub = f"{intr:,.0f} intr/s • {wakeups_hint_fast()}"
         self._set_wakeup_text(big, sub, acc)
