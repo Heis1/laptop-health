@@ -91,15 +91,17 @@ class DashboardPage(QWidget):
         grid.addWidget(self.disk, 0, 2, 1, 2)
 
         # Second row
+        self.wakeups = MetricCard("Wakeups", "—", "—", "green")
         self.updates = UpdatesCard("red")
         self.updates.details_requested.connect(self._go_updates)
         self.net = NetworkCard()
 
-        for w in (self.updates, self.net):
+        for w in (self.wakeups, self.updates, self.net):
             w.setFixedHeight(170)
             w.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
 
-        grid.addWidget(self.updates, 1, 0, 1, 2)
+        grid.addWidget(self.wakeups, 1, 0)
+        grid.addWidget(self.updates, 1, 1)
         grid.addWidget(self.net, 1, 2, 1, 2)
 
         outer.addLayout(grid)
@@ -227,7 +229,8 @@ class DashboardPage(QWidget):
             rf = "—" if root_free is None else f"{root_free:.0f} GB Free"
             self.disk.sub.setText(f"Home: {hf}   •   Root: {rf}")
 
-        # Network + Updates
+        # Wakeups + Network + Updates
+        self.wakeups.set_values(result.wakeups_big, result.wakeups_sub, result.wakeups_accent)
         self.net.set_network(result.down_mbps, result.latency_ms)
         self.updates.set_updates(
             getattr(result, 'updates_available', None),
