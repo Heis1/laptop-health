@@ -33,7 +33,9 @@ class MainWindow(QMainWindow):
 
         root = QWidget()
         # Keep dashboard proportional inside the window (no scrollbars).
-        self._aspect = AspectRatioContainer(ratio=16/9)
+        self._aspect = AspectRatioContainer(ratio=423/259)
+        self.resize(1269, 777)
+        self.setMinimumSize(1269, 777)
         self._aspect.setWidget(root)
         self.setCentralWidget(self._aspect)
         main = QHBoxLayout(root)
