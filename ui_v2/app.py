@@ -1,7 +1,8 @@
 from __future__ import annotations
 from PySide6.QtWidgets import (
+    QApplication,
     QFrame, QHBoxLayout, QLabel, QMainWindow, QPushButton, QStackedWidget,
-    QVBoxLayout, QWidget, QStyle
+    QVBoxLayout, QWidget, QStyle, QToolButton
 )
 
 from ui_v2.theme import qss
@@ -64,14 +65,26 @@ class MainWindow(QMainWindow):
         export = QPushButton("Export")
         export.setObjectName("TopBtn")
         export.setIcon(self.style().standardIcon(QStyle.SP_DialogSaveButton))
+        export.setEnabled(False)
+        export.setToolTip("Export (coming soon)")
         t.addWidget(export)
 
-        gear = QPushButton(" ")
-        gear.setObjectName("TopBtnIcon")
-        gear.setIcon(self.style().standardIcon(QStyle.SP_FileDialogDetailedView))
-        gear.setFixedWidth(44)
-        t.addWidget(gear)
+       #Exit Button configuration
+        from PySide6.QtGui import QFont
 
+        exit_btn = QToolButton()
+        exit_btn.setObjectName("ExitBtn")
+        exit_btn.setToolTip("Exit Laptop Health")
+
+        exit_btn.setText("⏻")
+        exit_btn.setFont(QFont("Segoe UI", 18))
+
+        exit_btn.setAutoRaise(True)
+        exit_btn.clicked.connect(self.close)
+
+        t.addWidget(exit_btn) 
+        
+        
         c.addWidget(top)
 
         self.stack = QStackedWidget()
@@ -97,6 +110,41 @@ class MainWindow(QMainWindow):
         self.sidebar.buttons["dev"].clicked.connect(lambda: self._go("dev"))
 
         self.setStyleSheet(qss())
+
+    def closeEvent(self, event):
+        # Graceful shutdown:
+        # stop timers, wait briefly for threadpools, then close.
+        try:
+            pages = getattr(self, "pages", {}) or {}
+            for page in pages.values():
+                # Stop QTimers (dashboard refresh, etc.)
+                t = getattr(page, "timer", None)
+                if t is not None:
+                    try:
+                        t.stop()
+                    except Exception:
+                        pass
+
+                # Clear worker references (but only after pool wait)
+                pool = getattr(page, "pool", None)
+                if pool is not None:
+                    try:
+                        pool.waitForDone(1500)  # ms; short, prevents hang
+                    except Exception:
+                        pass
+
+                # If the page tracks workers, clear after waiting
+                if hasattr(page, "_workers"):
+                    try:
+                        page._workers.clear()
+                    except Exception:
+                        pass
+        finally:
+            try:
+                event.accept()
+            except Exception:
+                pass
+
 
     def _go(self, key: str) -> None:
         self._set_active_nav(key)

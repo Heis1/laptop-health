@@ -127,5 +127,24 @@ QLabel#CardSub {
 }
 '''
 
+TOPBAR_QSS = r'''
+QToolButton#ExitBtn {
+    border: none;
+    padding: 6px 10px;
+    color: #f87171;		/* soft red base */
+    font-weight: 700;
+    border-radius: 10px;
+}
+
+QToolButton#ExitBtn:hover {
+    background: rgba(248,113,113,0.18);
+    color: #ff4d4d;		/* brighter red */
+}
+
+QToolButton#ExitBtn:pressed {
+    background: rgba(248,113,113,0.28);
+}
+'''
+
 def qss():
-    return _qss_base() + "\n" + TYPOGRAPHY_QSS
+    return _qss_base() + "\n" + TYPOGRAPHY_QSS + "\n" + TOPBAR_QSS
