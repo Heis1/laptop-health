@@ -14,6 +14,7 @@ ICON_MAP = {
     "Disk Usage": QStyle.SP_DriveHDIcon,
     "Pending Updates": QStyle.SP_MessageBoxWarning,
     "Network": QStyle.SP_DriveNetIcon,
+    "Wakeup Analysis": QStyle.SP_DialogApplyButton,
 }
 
 class MetricCard(QFrame):

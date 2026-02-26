@@ -9,7 +9,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from ui_v2.services.updates import get_update_summary
-from ui_v2.services.wakeups import sample_wake_activity_fast, classify_wakeup_proxy
+from ui_v2.services.wakeups import sample_wake_activity_now, classify_wakeup_proxy
 
 _rapl_last_energy = None
 _rapl_last_time = None
@@ -288,7 +288,7 @@ def gather_overview(interval_s: float = 1.0) -> OverviewMetrics:
     cpu_package_w = _read_rapl_power()
     cpu_vcore_v = _cpu_voltage_v()
 
-    wake = sample_wake_activity_fast()
+    wake = sample_wake_activity_now()
     ctxt = float(wake.get("ctxt_per_s", 0.0))
     intr = float(wake.get("intr_per_s", 0.0))
     upd = get_update_summary()
