@@ -37,6 +37,33 @@ def _read_proc_stat_counts() -> tuple[int, int]:
                     intr = int(parts[1])
     return ctxt, intr
 
+# Non-blocking delta sampler for dashboards (no sleep).
+_LAST_WAKE_SAMPLE: tuple[float, int, int] | None = None  # (t, ctxt, intr)
+
+def sample_wake_activity_now() -> dict[str, float]:
+    """
+    Non-blocking proxy sample using /proc/stat deltas.
+    Returns ctxt_per_s and intr_per_s without sleeping.
+    First call returns 0.0/0.0 (no baseline).
+    """
+    global _LAST_WAKE_SAMPLE
+
+    ctxt, intr = _read_proc_stat_counts()
+    t = time.time()
+
+    if _LAST_WAKE_SAMPLE is None:
+        _LAST_WAKE_SAMPLE = (t, ctxt, intr)
+        return {"ctxt_per_s": 0.0, "intr_per_s": 0.0}
+
+    t0, c0, i0 = _LAST_WAKE_SAMPLE
+    dt = max(0.001, t - t0)
+    _LAST_WAKE_SAMPLE = (t, ctxt, intr)
+
+    return {
+        "ctxt_per_s": max(0.0, (ctxt - c0) / dt),
+        "intr_per_s": max(0.0, (intr - i0) / dt),
+    }
+
 def sample_wake_activity_fast(interval_s: float = 1.0) -> dict[str, float]:
     """
     Fast, reliable proxy for wake activity:

@@ -34,7 +34,7 @@ class Sparkline(QWidget):
         self._points = points[:] if points else [0.2, 0.35, 0.3, 0.55, 0.4, 0.7, 0.6]
         self._accent = accent
         self.setMinimumHeight(46)
-        self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+        self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
 
     def set_points(self, points: list[float]) -> None:
         """Replace sparkline data (expects 0..1 normalized floats)."""
