@@ -128,6 +128,27 @@ QLabel#CardSub {
 '''
 
 TOPBAR_QSS = r'''
+QToolButton#TopBtn {
+    background: rgba(255,255,255,0.08);
+    color: #e8f0ff;
+    border: 1px solid rgba(255,255,255,0.14);
+    border-radius: 10px;
+    padding: 6px 12px;
+}
+
+QToolButton#TopBtn:hover {
+    background: rgba(255,255,255,0.12);
+    border: 1px solid rgba(255,255,255,0.20);
+}
+
+QToolButton#TopBtn:pressed {
+    background: rgba(255,255,255,0.06);
+}
+
+QToolButton#TopBtn::menu-indicator {
+    image: none;
+}
+
 QToolButton#ExitBtn {
     border: none;
     padding: 6px 10px;
@@ -143,6 +164,22 @@ QToolButton#ExitBtn:hover {
 
 QToolButton#ExitBtn:pressed {
     background: rgba(248,113,113,0.28);
+}
+
+QMenu {
+    background: rgba(10,14,22,0.98);
+    border: 1px solid rgba(255,255,255,0.16);
+    color: #e8f0ff;
+    padding: 6px;
+}
+
+QMenu::item {
+    padding: 6px 18px;
+    border-radius: 8px;
+}
+
+QMenu::item:selected {
+    background: rgba(96,165,250,0.22);
 }
 '''
 

@@ -1,8 +1,9 @@
 from __future__ import annotations
+from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
     QApplication,
-    QFrame, QHBoxLayout, QLabel, QMainWindow, QPushButton, QStackedWidget,
-    QVBoxLayout, QWidget, QStyle, QToolButton
+    QFrame, QHBoxLayout, QLabel, QMainWindow, QStackedWidget,
+    QVBoxLayout, QWidget, QStyle, QToolButton, QMenu, QDialog
 )
 
 from ui_v2.theme import qss
@@ -14,6 +15,8 @@ from ui_v2.pages.network import NetworkPage
 from ui_v2.pages.storage import StoragePage
 from ui_v2.pages.updates import UpdatesPage
 from ui_v2.pages.devtools import DevToolsPage
+from ui_v2.widgets.export_report_dialog import ExportReportDialog
+from ui_v2.export.report_pdf import export_current_view_pdf, export_system_report_pdf, capture_widget_pixmap
 
 
 class MainWindow(QMainWindow):
@@ -62,12 +65,23 @@ class MainWindow(QMainWindow):
         t.addWidget(title)
         t.addStretch(1)
 
-        export = QPushButton("Export")
-        export.setObjectName("TopBtn")
-        export.setIcon(self.style().standardIcon(QStyle.SP_DialogSaveButton))
-        export.setEnabled(False)
-        export.setToolTip("Export (coming soon)")
-        t.addWidget(export)
+       #Export Button configuration
+        self.btn_export = QToolButton()
+        self.btn_export.setObjectName("TopBtn")
+        self.btn_export.setIcon(self.style().standardIcon(QStyle.SP_DialogSaveButton))
+        self.btn_export.setText("Export")
+        self.btn_export.setToolTip("Export options")
+        self.btn_export.setToolButtonStyle(Qt.ToolButtonTextBesideIcon)
+        self.btn_export.setPopupMode(QToolButton.InstantPopup)
+
+        export_menu = QMenu(self)
+        act_current = export_menu.addAction("Export current view (PDF)...")
+        act_current.triggered.connect(self._export_current_pdf)
+        act_report = export_menu.addAction("Export system report (PDF)...")
+        act_report.triggered.connect(self._export_system_report)
+
+        self.btn_export.setMenu(export_menu)
+        t.addWidget(self.btn_export)
 
        #Exit Button configuration
         from PySide6.QtGui import QFont
@@ -96,8 +110,8 @@ class MainWindow(QMainWindow):
             "updates": UpdatesPage(),
             "dev": DevToolsPage(),
         }
-        order = ["dashboard", "power", "storage", "network", "updates", "dev"]
-        for k in order:
+        self.page_order = ["dashboard", "power", "storage", "network", "updates", "dev"]
+        for k in self.page_order:
             self.stack.addWidget(self.pages[k])
         c.addWidget(self.stack, 1)
 
@@ -144,10 +158,91 @@ class MainWindow(QMainWindow):
             except Exception:
                 pass
 
+    def _export_current_pdf(self) -> None:
+        from PySide6.QtWidgets import QFileDialog
+        from PySide6.QtCore import QDateTime
+
+        target = self.stack.currentWidget()
+        if target is None:
+            return
+        self.raise_()
+        self.activateWindow()
+        target.repaint()
+        QApplication.processEvents()
+
+        ts = QDateTime.currentDateTime().toString("yyyy-MM-dd_HHmmss")
+        default_name = f"laptop-health_{ts}.pdf"
+
+        path, _ = QFileDialog.getSaveFileName(
+            self,
+            "Export current view",
+            default_name,
+            "PDF Files (*.pdf)",
+        )
+
+        if not path:
+            return
+
+        export_current_view_pdf(target, path)
+
+    def _export_system_report(self) -> None:
+        from PySide6.QtWidgets import QFileDialog
+        from PySide6.QtCore import QDateTime
+
+        dialog = ExportReportDialog(self)
+        if dialog.exec() != QDialog.Accepted:
+            return
+
+        selections = dialog.selected_sections()
+        if not selections:
+            return
+
+        ts = QDateTime.currentDateTime().toString("yyyy-MM-dd_HHmmss")
+        default_name = f"laptop-health_report_{ts}.pdf"
+
+        path, _ = QFileDialog.getSaveFileName(
+            self,
+            "Export system report",
+            default_name,
+            "PDF Files (*.pdf)",
+        )
+
+        if not path:
+            return
+
+        screenshots: dict[str, object] = {}
+
+        # Only capture the dashboard screenshot for the report (sections are text)
+        if selections.get("dashboard", False):
+            current_index = self.stack.currentIndex()
+            dash_idx = self.page_order.index("dashboard")
+            if self.stack.currentIndex() != dash_idx:
+                self.stack.setCurrentIndex(dash_idx)
+
+            self.raise_()
+            self.activateWindow()
+            w = self.pages.get("dashboard")
+            if w is not None:
+                w.repaint()
+                QApplication.processEvents()
+                screenshots["dashboard"] = capture_widget_pixmap(w, scale=2.0)
+
+            # restore previous page
+            if self.stack.currentIndex() != current_index:
+                self.stack.setCurrentIndex(current_index)
+
+        export_system_report_pdf(
+            path=path,
+            screenshots=screenshots,
+            sections=selections,
+        )
+
+        if self.stack.currentIndex() != current_index:
+            self.stack.setCurrentIndex(current_index)
+
     def _go(self, key: str) -> None:
         self._set_active_nav(key)
-        order = ["dashboard", "power", "storage", "network", "updates", "dev"]
-        self.stack.setCurrentIndex(order.index(key))
+        self.stack.setCurrentIndex(self.page_order.index(key))
         self._set_active_nav(key)
 
     def _set_active_nav(self, key: str):
@@ -156,4 +251,3 @@ class MainWindow(QMainWindow):
             btn.style().unpolish(btn)
             btn.style().polish(btn)
             btn.update()
-
