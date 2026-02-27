@@ -112,12 +112,12 @@ class MainWindow(QMainWindow):
         self.setStyleSheet(qss())
 
     def closeEvent(self, event):
-        # Graceful shutdown:
-        # stop timers, wait briefly for threadpools, then close.
+        from PySide6.QtCore import QThreadPool
+
         try:
+            # 1) Stop timers first
             pages = getattr(self, "pages", {}) or {}
             for page in pages.values():
-                # Stop QTimers (dashboard refresh, etc.)
                 t = getattr(page, "timer", None)
                 if t is not None:
                     try:
@@ -125,26 +125,24 @@ class MainWindow(QMainWindow):
                     except Exception:
                         pass
 
-                # Clear worker references (but only after pool wait)
-                pool = getattr(page, "pool", None)
-                if pool is not None:
-                    try:
-                        pool.waitForDone(1500)  # ms; short, prevents hang
-                    except Exception:
-                        pass
+            # 2) Stop ALL queued global workers + wait briefly
+            pool = QThreadPool.globalInstance()
+            pool.clear()
+            pool.waitForDone(1500)
 
-                # If the page tracks workers, clear after waiting
+            # 3) Clear worker refs after pool drained
+            for page in pages.values():
                 if hasattr(page, "_workers"):
                     try:
                         page._workers.clear()
                     except Exception:
                         pass
+
         finally:
             try:
                 event.accept()
             except Exception:
                 pass
-
 
     def _go(self, key: str) -> None:
         self._set_active_nav(key)
