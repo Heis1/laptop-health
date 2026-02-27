@@ -5,8 +5,8 @@ from PySide6.QtGui import QFont, QColor
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QTableWidget,
     QTableWidgetItem, QHeaderView, QTextEdit, QFrame, QStyle, QDialog,
+    QGraphicsOpacityEffect,
 )
-
 from ui_v2.qtworker import QtWorker
 from ui_v2.services.updates import (
     UPDATE_ACCENT_RGBA,
@@ -384,6 +384,15 @@ class UpdatesPage(QWidget):
         self.log.setReadOnly(True)
         self.log.setPlaceholderText("Output will appear here…")
 
+        # Premium "busy" dim effect (no layout changes, still scrollable)
+        self._busy_fx_table = QGraphicsOpacityEffect(self.table)
+        self._busy_fx_table.setOpacity(1.0)
+        self.table.setGraphicsEffect(self._busy_fx_table)
+
+        self._busy_fx_log = QGraphicsOpacityEffect(self.log)
+        self._busy_fx_log.setOpacity(1.0)
+        self.log.setGraphicsEffect(self._busy_fx_log)
+
         mono = QFont()
         mono.setFamilies(["JetBrains Mono", "Fira Code", "Monospace"])
         mono.setPointSize(max(9, base_font.pointSize() - 1))
@@ -529,6 +538,13 @@ class UpdatesPage(QWidget):
                 b.setEnabled(not busy)
             except Exception:
                 pass
+
+        # Premium visual feedback: dim content while busy (but keep scroll/copy working)
+        try:
+            self._busy_fx_table.setOpacity(0.55 if busy else 1.0)
+            self._busy_fx_log.setOpacity(0.55 if busy else 1.0)
+        except Exception:
+            pass
 
         if msg:
             self._append_log(msg)
