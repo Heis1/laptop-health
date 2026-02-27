@@ -128,15 +128,12 @@ def _build_sections(selections: dict[str, bool]) -> list[Section]:
 
 
 def _placeholder_section(title: str) -> Section:
-    return Section(title=title, rows=[
-        ("Total updates", str(total_updates)),
-        ("Security updates", str(security_updates)),
-        ("Reboot required", "Yes" if reboot_required else "No"),
-        ("Upgradable packages", str(upgradable_count)),
-        ("Kept back", str(kept_back_count)),
-        ("Held packages", str(held_count)),
-])
-
+    return Section(
+        title=title,
+        rows=[
+            ("Status", "Not implemented yet"),
+        ],
+    )
 
 def _start_pdf(path: str) -> tuple[QPdfWriter, QPainter, _PageSpec]:
     writer = QPdfWriter(path)
