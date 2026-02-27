@@ -509,12 +509,33 @@ class UpdatesPage(QWidget):
                 status.setFont(f2)
                 f3 = name.font(); f3.setBold(True)
                 name.setFont(f3)
+    
+    def _set_busy(self, busy: bool, msg: str | None = None) -> None:
+        for b in (
+            self.btn_refresh,
+            self.btn_update_lists,
+            self.btn_upgrade,
+            self.btn_full,
+            self.btn_autoremove,
+        ):
+            try:
+                b.setEnabled(not busy)
+            except Exception:
+                pass
+
+        if msg:
+            self._append_log(msg)
+
+        if busy:
+            self._set_badge("REFRESHING…", "blue")    
 
     def _append_log(self, text: str):
         if text:
             self.log.append(text)
 
     def refresh(self):
+        self._set_busy(True, "\n== Refreshing updates list… ==")
+
         def job():
             total, sec = get_update_count()
             reb = reboot_required()
@@ -526,8 +547,9 @@ class UpdatesPage(QWidget):
         w = QtWorker(job)
         w.signals.result.connect(self._on_refresh)
         w.signals.error.connect(lambda e: self._append_log(f"[refresh error] {e}"))
+        w.signals.finished.connect(lambda: self._set_busy(False))
         self._workers.append(w)
-        self._start_worker(w)
+        self._start_worker(w) 
 
     def _on_refresh(self, res):
         total, sec, reb, items, kept, held = res
