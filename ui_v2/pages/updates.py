@@ -392,6 +392,13 @@ class UpdatesPage(QWidget):
         root.addWidget(self.log)
 
         self._workers: list[QtWorker] = []
+
+        from PySide6.QtCore import QTimer
+        self._busy_anim_tick = 0
+        self._busy_anim = QTimer(self)
+        self._busy_anim.setInterval(250)
+        self._busy_anim.timeout.connect(self._tick_busy_badge)
+
         self.refresh()
 
     def _set_badge(self, text: str, accent: str):
@@ -527,7 +534,22 @@ class UpdatesPage(QWidget):
             self._append_log(msg)
 
         if busy:
-            self._set_badge("REFRESHING…", "blue")    
+            self._busy_anim_tick = 0
+            self._set_badge("REFRESHING", "blue")
+            try:
+                self._busy_anim.start()
+            except Exception:
+                pass
+        else:
+            try:
+                self._busy_anim.stop()
+            except Exception:
+                pass
+
+    def _tick_busy_badge(self) -> None:
+        self._busy_anim_tick = (self._busy_anim_tick + 1) % 4
+        dots = "." * self._busy_anim_tick
+        self._set_badge(f"REFRESHING{dots}", "blue")
 
     def _append_log(self, text: str):
         if text:
