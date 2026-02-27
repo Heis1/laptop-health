@@ -92,15 +92,13 @@ def export_system_report_pdf(
             y = page.content.top()
 
             for section in sections_to_render:
-                pix = screenshots.get(_section_key(section.title))
                 y, page_number = _draw_section_block(
                     painter,
                     page,
                     section,
                     y,
                     timestamp,
-                    page_number,
-                    pix,
+                    page_number
                 )
 
             _draw_footer(painter, page, timestamp=timestamp, page_number=page_number)
@@ -130,7 +128,14 @@ def _build_sections(selections: dict[str, bool]) -> list[Section]:
 
 
 def _placeholder_section(title: str) -> Section:
-    return Section(title=title, rows=[("Status", "Not implemented yet")])
+    return Section(title=title, rows=[
+        ("Total updates", str(total_updates)),
+        ("Security updates", str(security_updates)),
+        ("Reboot required", "Yes" if reboot_required else "No"),
+        ("Upgradable packages", str(upgradable_count)),
+        ("Kept back", str(kept_back_count)),
+        ("Held packages", str(held_count)),
+])
 
 
 def _start_pdf(path: str) -> tuple[QPdfWriter, QPainter, _PageSpec]:
@@ -216,57 +221,50 @@ def _draw_section_block(
     y: float,
     timestamp: str,
     page_number: int,
-    screenshot: QPixmap | None,
+    
 ) -> tuple[float, int]:
+
     heading_font = QFont("Segoe UI", 12, QFont.Bold)
     body_font = QFont("Segoe UI", 10)
     value_font = QFont("JetBrains Mono", 10)
+
     heading_metrics = QFontMetrics(heading_font)
     body_metrics = QFontMetrics(body_font)
 
     section_gap = 30
-    header_h = heading_metrics.height()
-    block_needed = section_gap + header_h + 10
-    if screenshot is not None and not screenshot.isNull():
-        block_needed += page.content.height() * 0.40 + 14
-    row_h = body_metrics.height() + 8
-    block_needed += row_h * max(1, len(section.rows)) + 12
+    row_h = 22
+    indent = 40
+    key_col_w = page.content.width() * 0.55
 
-    y, page_number = _ensure_space(page, painter, y, block_needed, timestamp, page_number)
-
+    # Add spacing before section
     y += section_gap
+
+    # Ensure enough space for at least header + 1 row
+    needed = heading_metrics.height() + 20 + row_h * max(1, len(section.rows))
+    y, page_number = _ensure_space(page, painter, y, needed, timestamp, page_number)
+
+    # Draw title
     painter.setFont(heading_font)
     painter.setPen(Qt.white)
     painter.drawText(page.content.left(), y + heading_metrics.ascent(), section.title)
-    y += header_h + 6
+    y += heading_metrics.height() + 6
 
+    # Divider
     painter.setPen(Qt.gray)
     painter.drawLine(page.content.left(), y, page.content.right(), y)
     y += 12
 
-    if screenshot is not None and not screenshot.isNull():
-        logical_w, logical_h = _pixmap_logical_size(screenshot)
-        max_width = page.content.width()
-        max_height = page.content.height() * 0.40
-        scale = min(max_width / logical_w, max_height / logical_h)
-        target_width = logical_w * scale
-        target_height = logical_h * scale
-        target = QRectF(page.content.left(), y, target_width, target_height)
-        painter.setRenderHint(QPainter.SmoothPixmapTransform, True)
-        painter.drawPixmap(target, screenshot, QRectF(0, 0, screenshot.width(), screenshot.height()))
-        y = target.bottom() + 16
-
-    indent = 40
+    # Rows
     y_cursor = y
-    key_col_w = page.content.width() * 0.55
-
     for key, value in section.rows:
         painter.setFont(body_font)
         painter.setPen(Qt.white)
         painter.drawText(page.content.left() + indent, y_cursor + body_metrics.ascent(), key)
+
         painter.setFont(value_font)
         painter.setPen(Qt.lightGray)
         painter.drawText(page.content.left() + indent + key_col_w, y_cursor + body_metrics.ascent(), value)
+
         y_cursor += row_h
 
     return y_cursor + 20, page_number
