@@ -19,8 +19,8 @@ def _fix_top_row_heights(*widgets, h: int = 165) -> None:
     for w in widgets:
         try:
             w.setMinimumHeight(h)
-            w.setMaximumHeight(h)
-            w.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+            w.setMaximumHeight(16777215)
+            w.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
         except Exception:
             pass
 
@@ -97,8 +97,8 @@ class DashboardPage(QWidget):
         self.net = NetworkCard()
 
         for w in (self.wakeups, self.updates, self.net):
-            w.setFixedHeight(170)
-            w.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+            w.setFixedHeight(165)
+            w.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
 
         grid.addWidget(self.wakeups, 1, 0)
         grid.addWidget(self.updates, 1, 1)
