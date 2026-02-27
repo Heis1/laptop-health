@@ -55,8 +55,8 @@ class Inspector(QFrame):
         apply_card_shadow(self.container)
 
         # Don’t eat leftover vertical space
-        self.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Maximum)
-        self.container.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Maximum)
+        self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+        self.container.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
 
         container_layout = QVBoxLayout(self.container)
         container_layout.setContentsMargins(16, 16, 16, 16)

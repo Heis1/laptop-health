@@ -107,8 +107,8 @@ class CpuDetailsCard(QFrame):
 
         self._freq_hist = deque([0.0] * 36, maxlen=36)
         self.spark = Sparkline(list(self._freq_hist), accent="green")
-        self.spark.setMinimumHeight(64)
-        outer.addWidget(self.spark, 1)
+        self.spark.setMinimumHeight(52)
+        outer.addWidget(self.spark)
 
     def _apply_state(self, new_state: str) -> None:
         if new_state == self._state:
