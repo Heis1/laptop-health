@@ -31,7 +31,7 @@ class Sidebar(QFrame):
             return btn
 
         mk("dashboard", "Overview", QStyle.SP_DesktopIcon)
-        mk("power", "Power & Thermal", QStyle.SP_ComputerIcon)
+        mk("power", "Power && Thermal", QStyle.SP_ComputerIcon)
         mk("network", "Network", QStyle.SP_DriveNetIcon)
         mk("storage", "Storage", QStyle.SP_DriveHDIcon)
         mk("updates", "Updates", QStyle.SP_MessageBoxWarning)
