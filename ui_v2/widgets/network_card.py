@@ -1,4 +1,5 @@
 from __future__ import annotations
+from PySide6.QtGui import QFont
 
 from PySide6.QtCore import QThreadPool, QTimer
 from PySide6.QtWidgets import QFrame, QHBoxLayout, QLabel, QStyle, QVBoxLayout
@@ -49,9 +50,34 @@ class NetworkCard(QFrame):
         outer.addLayout(hdr)
 
         self.big = QLabel("—")
+
+
+        f = QFont()
+
+
+        f.setStyleHint(QFont.Monospace)
+
+
+        f.setFixedPitch(True)
+
+
+        
+
+        self.big.setFont(f)
+
+        self.big.setMinimumWidth(90)
+        self.big.setStyleSheet("")
+
+        self.big.setMinimumWidth(90)
         self.big.setObjectName("CardHuge")
 
         self.sub = QLabel("—")
+
+
+        self.sub.setMinimumWidth(150)
+        self.sub.setStyleSheet("")
+
+        self.sub.setMinimumWidth(140)
         self.sub.setObjectName("CardSub")
         self.sub.setWordWrap(True)
 

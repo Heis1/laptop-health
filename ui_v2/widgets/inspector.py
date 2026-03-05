@@ -79,6 +79,11 @@ class Inspector(QFrame):
         info.setContentsMargins(0, 0, 0, 0)
         info.setSpacing(6)
 
+        try:
+            self._wake_info.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
+        except Exception:
+            pass
+
         self._wake_line1 = QLabel("✓ Proxy: /proc/stat (fast)")
         self._wake_line1.setObjectName("CardSub")
         self._wake_line2 = QLabel("✓ Deep: powertop (needs sudo)")
@@ -86,6 +91,7 @@ class Inspector(QFrame):
         self._wake_line3 = QLabel("—")
         self._wake_line3.setObjectName("CardSub")
 
+        # Prevent right-side wake info from being clipped
         info.addWidget(self._wake_line1)
         info.addWidget(self._wake_line2)
         info.addWidget(self._wake_line3)
@@ -140,14 +146,16 @@ class Inspector(QFrame):
                 fn(m)
         except Exception:
             pass
-
         # Disk info
         try:
             fn = getattr(self.disk, "set_disk", None)
-            if callable(fn):
-                fn(getattr(m, "root_used_pct", None), getattr(m, "root_free_gb", None))
+            used = getattr(m, "root_used_pct", None)
+            free = getattr(m, "root_free_gb", None)
+            if used is not None and free is not None and callable(fn):
+                fn(used, free)
         except Exception:
             pass
+
 
         # Wakeup Analysis
         try:
