@@ -121,8 +121,9 @@ class MainWindow(QMainWindow):
         self.sidebar.buttons["storage"].clicked.connect(lambda: self._go("storage"))
         self.sidebar.buttons["network"].clicked.connect(lambda: self._go("network"))
         self.sidebar.buttons["updates"].clicked.connect(lambda: self._go("updates"))
-        self.sidebar.buttons["dev"].clicked.connect(lambda: self._go("dev"))
-
+        # Dev Tools is only present in developer mode
+        if "dev" in getattr(self.sidebar, "buttons", {}):
+            self.sidebar.buttons["dev"].clicked.connect(lambda: self._go("dev"))
         self.setStyleSheet(qss())
 
     def closeEvent(self, event):
