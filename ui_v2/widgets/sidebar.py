@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import os
+DEV_MODE = os.getenv("LAPTOP_HEALTH_DEV", "").strip().lower() in ("1","true","yes","on")
+
 from PySide6.QtWidgets import QFrame, QVBoxLayout, QPushButton, QLabel, QStyle
 
 
@@ -36,8 +39,12 @@ class Sidebar(QFrame):
         mk("storage", "Storage", QStyle.SP_DriveHDIcon)
         mk("updates", "Updates", QStyle.SP_MessageBoxWarning)
 
-        dev_btn = mk("dev", "Dev Tools", QStyle.SP_FileDialogDetailedView)
+        if DEV_MODE:
+
+            dev_btn = mk("dev", "Dev Tools", QStyle.SP_FileDialogDetailedView)
+
         # Alias for any newer code paths
-        self.buttons["devtools"] = dev_btn
+        if DEV_MODE:
+            self.buttons["devtools"] = dev_btn
 
         v.addStretch(1)
