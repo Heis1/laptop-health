@@ -33,14 +33,13 @@ class Inspector(QFrame):
         # ----- Header -----
         hdr = QHBoxLayout()
         self.toggle = QToolButton()
+        self.toggle.hide()
         self.toggle.setObjectName("InspectorToggle")
         self.toggle.setText("System Inspector")
-        self.toggle.setCheckable(True)
-        self.toggle.setChecked(True)
+        self.toggle
+        self.toggle
         self.toggle.setToolButtonStyle(Qt.ToolButtonTextBesideIcon)
-        self.toggle.setArrowType(Qt.DownArrow)
-        self.toggle.clicked.connect(self._toggle)
-
+        self.toggle
         hdr.addWidget(self.toggle)
         hdr.addStretch(1)
 
@@ -134,72 +133,4 @@ class Inspector(QFrame):
         container_layout.addLayout(grid)
         outer.addWidget(self.container)
 
-    def _toggle(self):
-        self.container.setVisible(self.toggle.isChecked())
-        self.toggle.setArrowType(Qt.DownArrow if self.toggle.isChecked() else Qt.RightArrow)
-
-    def update_overview(self, m) -> None:
-        try:
-            if hasattr(self.cpu_details, "update_overview"):
-                self.cpu_details.update_overview(m)
-
-            big = getattr(m, "wakeups_big", "—")  # e.g. "3,229 ctx/s"
-            sub = getattr(m, "wakeups_sub", "—")  # e.g. "4,567 intr/s"
-
-            # Parse numeric ctx/intr
-            try:
-                ctxt_val = float(big.split()[0].replace(",", ""))
-            except Exception:
-                ctxt_val = 0.0
-            try:
-                intr_val = float(sub.split()[0].replace(",", ""))
-            except Exception:
-                intr_val = 0.0
-
-            combined = ctxt_val + intr_val
-
-            # Accent logic (keep your thresholds)
-            if combined > 220000:
-                accent = "red"
-            elif combined > 100000:
-                accent = "orange"
-            else:
-                accent = "green"
-
-            # Better display (more informative, less empty)
-            self.wake.set_values(
-                f"{combined:,.0f} events/s",
-                f"{ctxt_val:,.0f} ctx/s • {intr_val:,.0f} intr/s",
-                accent,
-            )
-
-            # Right info panel (dynamic hints)
-            self._wake_line1.setText(f"✓ {wakeups_hint_fast()}")
-            self._wake_line2.setText(f"✓ {wakeups_hint_deep()}")
-            self._wake_line3.setText("✓ Suggestion: OK" if accent == "green" else "⚠ Suggestion: investigate")
-
-            # Spark: log scale so low values aren’t flat
-            # Cap chosen to show detail in typical ranges; log makes it still usable at higher rates.
-            cap = 50000.0
-            norm = math.log1p(max(0.0, combined)) / math.log1p(cap)
-            norm = max(0.0, min(1.0, float(norm)))
-            self._wake_hist.append(norm)
-            self.wake.set_spark(list(self._wake_hist))
-
-            # Spark follows accent
-            if getattr(self.wake, "spark", None) is not None:
-                self.wake.spark.setProperty("accent", accent)
-                self.wake.spark.update()
-
-            # Icon follows accent
-            color_map = {
-                "green": "rgba(92,255,160,0.95)",
-                "orange": "rgba(255,176,64,0.95)",
-                "red": "rgba(255,92,92,0.95)",
-            }
-            self._wake_icon.setStyleSheet(
-                f"QLabel {{ background: {color_map.get(accent, 'rgba(255,255,255,0.85)')}; border-radius: 7px; }}"
-            )
-
-        except Exception:
-            pass
+    
