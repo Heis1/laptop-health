@@ -197,6 +197,7 @@ class DashboardPage(QWidget):
         name = self._gpu_last_name or "GPU"
         self.gpu.set_values(big, f"{name} • {util}", accent)
 
+
     def _apply(self, result):
         if not isinstance(result, OverviewMetrics):
             return
@@ -225,10 +226,13 @@ class DashboardPage(QWidget):
             else:
                 disk_accent = "orange"
 
-        self.disk.setProperty("accent", disk_accent)
-        self.disk.style().unpolish(self.disk)
-        self.disk.style().polish(self.disk)
-        self.disk.update()
+        try:
+            self.disk.setProperty("accent", disk_accent)
+            self.disk.style().unpolish(self.disk)
+            self.disk.style().polish(self.disk)
+            self.disk.update()
+        except Exception:
+            pass
 
         if home_used is None:
             self.disk.big.setText("—")
@@ -256,12 +260,44 @@ class DashboardPage(QWidget):
             getattr(result, 'updates_badge', None),
             getattr(result, 'updates_accent', None),
         )
+
+
+        # Back-compat: expose numeric wakeup fields for widgets that expect numbers
+        # We currently only have strings like "0 ctx/s" and "0 intr/s".
+        try:
+            def _num(x):
+                if x is None:
+                    return None
+                if isinstance(x, (int, float)):
+                    return float(x)
+                if isinstance(x, str):
+                    mm = re.search(r"([-+]?[0-9]*\.?[0-9]+)", x)
+                    return float(mm.group(1)) if mm else None
+                return None
+
+            # Common numeric names Wakeup Analysis widgets tend to use
+            if getattr(result, "ctx_per_s", None) is None:
+                v = _num(getattr(result, "wakeups_big", None))
+                if v is not None:
+                    setattr(result, "ctx_per_s", v)
+
+            if getattr(result, "intr_per_s", None) is None:
+                v = _num(getattr(result, "wakeups_sub", None))
+                if v is not None:
+                    setattr(result, "intr_per_s", v)
+
+            # Also offer some alias names, just in case
+            if getattr(result, "wakeups_per_s", None) is None and getattr(result, "intr_per_s", None) is not None:
+                setattr(result, "wakeups_per_s", getattr(result, "intr_per_s"))
+
+        except Exception:
+            pass
+
+        # Inspector owns the CPU Details + Wakeup Analysis cards
         try:
             self.inspector.update_overview(result)
         except Exception:
             pass
-
-
 
     def _on_refresh_state(self, st: RefreshState) -> None:
         # Safe: works even if you haven't added _overlay/_status/buttons yet

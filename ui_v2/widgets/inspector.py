@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from collections import deque
 import math
+import re
 
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
@@ -33,13 +34,10 @@ class Inspector(QFrame):
         # ----- Header -----
         hdr = QHBoxLayout()
         self.toggle = QToolButton()
-        self.toggle.hide()
+        self.toggle.hide()  # twisty removed
         self.toggle.setObjectName("InspectorToggle")
         self.toggle.setText("System Inspector")
-        self.toggle
-        self.toggle
         self.toggle.setToolButtonStyle(Qt.ToolButtonTextBesideIcon)
-        self.toggle
         hdr.addWidget(self.toggle)
         hdr.addStretch(1)
 
@@ -75,7 +73,7 @@ class Inspector(QFrame):
         # Wakeups: history + scaling
         self._wake_hist = deque([0.0] * 36, maxlen=36)
 
-        # Right-side info stack (fills the “empty” space)
+        # Right-side info stack
         self._wake_info = QWidget()
         info = QVBoxLayout(self._wake_info)
         info.setContentsMargins(0, 0, 0, 0)
@@ -133,4 +131,56 @@ class Inspector(QFrame):
         container_layout.addLayout(grid)
         outer.addWidget(self.container)
 
-    
+    def update_overview(self, m) -> None:
+        """Receive OverviewMetrics from DashboardPage and fan out to sub-cards."""
+        # CPU Details
+        try:
+            fn = getattr(self.cpu_details, "update_overview", None)
+            if callable(fn):
+                fn(m)
+        except Exception:
+            pass
+
+        # Disk info
+        try:
+            fn = getattr(self.disk, "set_disk", None)
+            if callable(fn):
+                fn(getattr(m, "root_used_pct", None), getattr(m, "root_free_gb", None))
+        except Exception:
+            pass
+
+        # Wakeup Analysis
+        try:
+            big = getattr(m, "wakeups_big", "—")
+            sub = getattr(m, "wakeups_sub", "—")
+            accent = getattr(m, "wakeups_accent", "green")
+
+            self.wake.set_values(big, sub, accent)
+
+            # Hint lines (cheap but useful)
+            try:
+                self._wake_line1.setText(wakeups_hint_fast())
+            except Exception:
+                pass
+            try:
+                self._wake_line2.setText(wakeups_hint_deep())
+            except Exception:
+                pass
+
+            # Sparkline from big ("123 ctx/s")
+            v = None
+            if isinstance(big, str):
+                mm = re.search(r"([-+]?[0-9]*\.?[0-9]+)", big)
+                if mm:
+                    v = float(mm.group(1))
+            elif isinstance(big, (int, float)):
+                v = float(big)
+
+            if v is not None:
+                # log scale: 0..~10000 maps nicely
+                val = max(0.0, min(1.0, math.log10(v + 1.0) / 4.0))
+                self._wake_hist.append(val)
+                if getattr(self.wake, "spark", None) is not None:
+                    self.wake.set_spark(list(self._wake_hist))
+        except Exception:
+            pass
