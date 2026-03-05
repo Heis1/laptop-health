@@ -1,5 +1,84 @@
 from __future__ import annotations
 
+def _read_sensors_ppt_w() -> float | None:
+    """CPU package power from lm-sensors output (PPT: XX.XX W)."""
+    try:
+        import subprocess, re
+        out = subprocess.check_output(["sensors"], text=True, errors="replace")
+    except Exception:
+        return None
+
+    m = re.search(r"(?mi)^\s*PPT:\s*([0-9]*\.?[0-9]+)\s*W\b", out)
+    if m:
+        try:
+            return float(m.group(1))
+        except Exception:
+            pass
+
+    # fallback: power1 in mW -> W
+    m = re.search(r"(?mi)^\s*power1:\s*([0-9]*\.?[0-9]+)\s*mW\b", out)
+    if m:
+        try:
+            return float(m.group(1)) / 1000.0
+        except Exception:
+            pass
+
+    return None
+
+
+
+def _read_proc_stat_ctxt_intr() -> tuple[int | None, int | None]:
+    """Return (ctxt_total, intr_total) from /proc/stat, or (None, None) if unavailable."""
+    try:
+        ctxt = None
+        intr = None
+        with open("/proc/stat", "r", encoding="utf-8") as f:
+            for line in f:
+                if line.startswith("ctxt "):
+                    ctxt = int(line.split()[1])
+                elif line.startswith("intr "):
+                    # intr line: "intr <total> <irq0> <irq1> ..."
+                    intr = int(line.split()[1])
+                if ctxt is not None and intr is not None:
+                    break
+        return ctxt, intr
+    except Exception:
+        return None, None
+
+
+def _sample_wakeups_over_interval(interval_s: float) -> tuple[float, float]:
+    """
+    Measure ctxt/s and intr/s over an interval using /proc/stat deltas.
+    Falls back to wakeups service if needed.
+    """
+    import time as _time
+    a_ctxt, a_intr = _read_proc_stat_ctxt_intr()
+    t0 = _time.time()
+    _time.sleep(max(0.5, float(interval_s)))
+    b_ctxt, b_intr = _read_proc_stat_ctxt_intr()
+    t1 = _time.time()
+    dt = max(0.001, t1 - t0)
+
+    if a_ctxt is not None and b_ctxt is not None:
+        ctxt_per_s = max(0.0, (b_ctxt - a_ctxt) / dt)
+    else:
+        ctxt_per_s = 0.0
+
+    if a_intr is not None and b_intr is not None:
+        intr_per_s = max(0.0, (b_intr - a_intr) / dt)
+    else:
+        intr_per_s = 0.0
+
+    # If both are zero, fall back to the existing service (in case it has better logic on some systems)
+    if ctxt_per_s == 0.0 and intr_per_s == 0.0:
+        try:
+            wake = sample_wake_activity_now()
+            ctxt_per_s = float(wake.get("ctxt_per_s", 0.0))
+            intr_per_s = float(wake.get("intr_per_s", 0.0))
+        except Exception:
+            pass
+
+    return ctxt_per_s, intr_per_s
 import os
 import re
 import shutil
@@ -286,11 +365,10 @@ def gather_overview(interval_s: float = 1.0) -> OverviewMetrics:
     root_used, root_free = _disk_usage("/")
 
     cpu_package_w = _read_rapl_power()
+    if cpu_package_w is None:
+        cpu_package_w = _read_sensors_ppt_w()
     cpu_vcore_v = _cpu_voltage_v()
-
-    wake = sample_wake_activity_now()
-    ctxt = float(wake.get("ctxt_per_s", 0.0))
-    intr = float(wake.get("intr_per_s", 0.0))
+    ctxt, intr = _sample_wakeups_over_interval(interval_s)
     upd = get_update_summary()
 
     return OverviewMetrics(
