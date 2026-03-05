@@ -10,7 +10,7 @@ from ui_v2.widgets.disk_usage_card import DiskUsageCard
 from ui_v2.widgets.network_card import NetworkCard
 from ui_v2.widgets.inspector import Inspector
 from ui_v2.workers import Worker
-from ui_v2.services.overview_metrics import gather_overview, OverviewMetrics
+from ui_v2.services.overview_metrics import gather_overview, OverviewMetrics, gather_fast, gather_slow
 from ui_v2.services.gpu_metrics import get_gpu, GpuInfo
 from ui_v2.services.refresh_controller import RefreshController, RefreshState
 
@@ -116,10 +116,82 @@ class DashboardPage(QWidget):
 
 
         self._refresh_ctl.request_refresh("Refreshing…")
-        self.timer = QTimer(self)
-        self.timer.setInterval(5000)  # set to 1000 if you want “live-live”
-        self.timer.timeout.connect(lambda: self._refresh_ctl.request_refresh("Refreshing…"))
-        self.timer.start()
+        # Kick once for initial paint
+        self._refresh_fast()
+        self._refresh_slow()
+
+        # Fast: CPU/Wake/Net + Inspector feel
+        self.timer_fast = QTimer(self)
+        self.timer_fast.setInterval(2000)
+        self.timer_fast.timeout.connect(self._refresh_fast)
+        self.timer_fast.start()
+
+        # Slow: disk + updates
+        self.timer_slow = QTimer(self)
+        self.timer_slow.setInterval(60000)
+        self.timer_slow.timeout.connect(self._refresh_slow)
+        self.timer_slow.start()
+
+        # GPU cadence gate (~5s)
+        self._gpu_last_ts = 0.0
+
+    def _refresh_fast(self):
+        # Fast metrics (non-blocking)
+        w = Worker(lambda: gather_fast())
+        self._workers.append(w)
+
+        def _done(res):
+            try:
+                self._apply(res)
+            finally:
+                try:
+                    self._workers.remove(w)
+                except ValueError:
+                    pass
+
+        w.signals.finished.connect(_done)
+        self.pool.start(w)
+
+        # GPU gated to ~5s
+        try:
+            import time as _time
+            now = _time.time()
+            if now - getattr(self, "_gpu_last_ts", 0.0) >= 5.0:
+                self._gpu_last_ts = now
+                wg = Worker(get_gpu)
+                self._workers.append(wg)
+
+                def _done_g(res):
+                    try:
+                        self._apply_gpu(res)
+                    finally:
+                        try:
+                            self._workers.remove(wg)
+                        except ValueError:
+                            pass
+
+                wg.signals.finished.connect(_done_g)
+                self.pool.start(wg)
+        except Exception:
+            pass
+
+    def _refresh_slow(self):
+        # Slow metrics (disk + updates)
+        w = Worker(lambda: gather_slow())
+        self._workers.append(w)
+
+        def _done(res):
+            try:
+                self._apply(res)
+            finally:
+                try:
+                    self._workers.remove(w)
+                except ValueError:
+                    pass
+
+        w.signals.finished.connect(_done)
+        self.pool.start(w)
+
 
     def _refresh(self):
         # Wrapper kept for compatibility: route refresh through controller

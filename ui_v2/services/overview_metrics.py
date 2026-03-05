@@ -343,6 +343,121 @@ def _latency_ms() -> float | None:
 
 
 
+
+
+# ---------------------------
+# Cached (non-blocking) samplers
+# ---------------------------
+_net_last = None  # (t, rx_bytes, tx_bytes)
+_wake_last = None # (t, ctxt_total, intr_total)
+
+def _read_proc_stat_ctxt_intr() -> tuple[int | None, int | None]:
+    try:
+        ctxt = None
+        intr = None
+        with open("/proc/stat", "r", encoding="utf-8") as f:
+            for line in f:
+                if line.startswith("ctxt "):
+                    ctxt = int(line.split()[1])
+                elif line.startswith("intr "):
+                    intr = int(line.split()[1])
+                if ctxt is not None and intr is not None:
+                    break
+        return ctxt, intr
+    except Exception:
+        return None, None
+
+def _wake_rates_cached() -> tuple[float | None, float | None]:
+    """Return (ctxt_per_s, intr_per_s) using cached /proc/stat deltas (no sleep)."""
+    global _wake_last
+    now = time.time()
+    ctxt, intr = _read_proc_stat_ctxt_intr()
+    if ctxt is None or intr is None:
+        return None, None
+    if _wake_last is None:
+        _wake_last = (now, ctxt, intr)
+        return None, None
+    t0, ctxt0, intr0 = _wake_last
+    dt = max(0.001, now - t0)
+    _wake_last = (now, ctxt, intr)
+    return max(0.0, (ctxt - ctxt0) / dt), max(0.0, (intr - intr0) / dt)
+
+def _net_down_mbps_cached(iface: str) -> float | None:
+    """Return download Mbps using cached /proc/net/dev deltas (no sleep)."""
+    global _net_last
+    now = time.time()
+    b = _read_iface_bytes(iface)
+    if not b:
+        return None
+    rx, tx = b
+    if _net_last is None:
+        _net_last = (now, rx, tx)
+        return None
+    t0, rx0, tx0 = _net_last
+    dt = max(0.001, now - t0)
+    _net_last = (now, rx, tx)
+    rx_delta = max(0, rx - rx0)
+    return (rx_delta * 8.0) / (dt * 1_000_000.0)
+
+def gather_fast() -> OverviewMetrics:
+    """Fast refresh metrics (no sleeps, no apt): CPU + wakeups + net/latency."""
+    iface = _default_iface()
+    down_mbps = _net_down_mbps_cached(iface) if iface else None
+
+    # Wakeups: prefer cached /proc/stat delta; fall back to existing helper
+    ctxt, intr = _wake_rates_cached()
+    if ctxt is None or intr is None:
+        try:
+            wake = sample_wake_activity_now()
+            ctxt = float(wake.get("ctxt_per_s", 0.0))
+            intr = float(wake.get("intr_per_s", 0.0))
+        except Exception:
+            ctxt, intr = 0.0, 0.0
+
+    cpu_package_w = _read_rapl_power()
+    if cpu_package_w is None:
+        try:
+            cpu_package_w = _read_sensors_ppt_w()
+        except Exception:
+            pass
+
+    return OverviewMetrics(
+        cpu_temp_c=_cpu_temp(),
+        cpu_freq_ghz=_cpu_freq_ghz(),
+        cpu_package_w=cpu_package_w,
+        cpu_vcore_v=_cpu_voltage_v(),
+        down_mbps=down_mbps,
+        latency_ms=_latency_ms(),
+        wakeups_big=f"{ctxt:,.0f} ctx/s",
+        wakeups_sub=f"{intr:,.0f} intr/s",
+        wakeups_accent=classify_wakeup_proxy(ctxt, intr),
+    )
+
+def gather_slow() -> OverviewMetrics:
+    """Slow refresh metrics (disk + updates)."""
+    home_dir = str(Path.home())
+    home_mount = _find_mountpoint_for_path(home_dir)
+
+    home_used, home_free = _disk_usage(home_mount)
+    root_used, root_free = _disk_usage("/")
+
+    upd = get_update_summary()
+
+    return OverviewMetrics(
+        home_used_pct=home_used,
+        home_free_gb=home_free,
+        home_mount=home_mount,
+        root_used_pct=root_used,
+        root_free_gb=root_free,
+        updates_available=upd.total,
+        security_updates=upd.security,
+        reboot_required=upd.reboot_required,
+        kept_back_updates=upd.kept_back,
+        held_updates=upd.held,
+        updates_badge=upd.badge,
+        updates_accent=upd.accent,
+    )
+
 def gather_overview(interval_s: float = 1.0) -> OverviewMetrics:
     iface = _default_iface()
     down_mbps = None
