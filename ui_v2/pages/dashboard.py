@@ -12,6 +12,7 @@ from ui_v2.widgets.inspector import Inspector
 from ui_v2.workers import Worker
 from ui_v2.services.overview_metrics import gather_overview, OverviewMetrics
 from ui_v2.services.gpu_metrics import get_gpu, GpuInfo
+from ui_v2.services.refresh_controller import RefreshController, RefreshState
 
 
 def _fix_top_row_heights(*widgets, h: int = 165) -> None:
@@ -108,13 +109,28 @@ class DashboardPage(QWidget):
         self.inspector = Inspector()
         outer.addWidget(self.inspector)
 
-        self._refresh()
+        # Refresh controller (debounce + busy state)
+        self._refresh_ctl = RefreshController(min_interval_ms=700)
+        self._refresh_ctl.stateChanged.connect(self._on_refresh_state)
+        self._refresh_ctl.refreshRequested.connect(self._do_refresh_now)
+
+
+        self._refresh_ctl.request_refresh("Refreshing…")
         self.timer = QTimer(self)
         self.timer.setInterval(5000)  # set to 1000 if you want “live-live”
-        self.timer.timeout.connect(self._refresh)
+        self.timer.timeout.connect(lambda: self._refresh_ctl.request_refresh("Refreshing…"))
         self.timer.start()
 
     def _refresh(self):
+        # Wrapper kept for compatibility: route refresh through controller
+        try:
+            self._refresh_ctl.request_refresh("Refreshing…")
+        except Exception:
+            # Fallback: if controller isn't ready for some reason, run directly
+            self._do_refresh_now()
+
+    def _do_refresh_now(self) -> None:
+        """Actual refresh pipeline (previously _refresh())."""
         # Overview (CPU/disk/network/updates)
         w = Worker(lambda: gather_overview(interval_s=1.0))
         self._workers.append(w)
@@ -142,7 +158,6 @@ class DashboardPage(QWidget):
                     pass
         w_gpu.signals.finished.connect(_done_gpu)
         self.pool.start(w_gpu)
-
     def _apply_gpu(self, r):
         # Ignore garbage / failures (don’t overwrite UI with — every tick)
         if not isinstance(r, GpuInfo):
@@ -244,6 +259,63 @@ class DashboardPage(QWidget):
         try:
             self.inspector.update_overview(result)
         except Exception:
+            pass
+
+
+
+    def _on_refresh_state(self, st: RefreshState) -> None:
+        # Safe: works even if you haven't added _overlay/_status/buttons yet
+        try:
+            status = getattr(self, "_status", None)
+            overlay = getattr(self, "_overlay", None)
+
+            if st.busy:
+                if status is not None:
+                    status.setText(st.message or "Refreshing…")
+                if overlay is not None:
+                    try:
+                        overlay.setText(st.message or "Refreshing…")
+                    except Exception:
+                        pass
+                    try:
+                        overlay.start()
+                    except Exception:
+                        pass
+
+                # Optional: disable common buttons if present
+                for name in ("refresh_btn", "run_speedtest_btn"):
+                    b = getattr(self, name, None)
+                    if b is not None:
+                        try:
+                            b.setEnabled(False)
+                        except Exception:
+                            pass
+                return
+
+            # Not busy
+            if overlay is not None:
+                try:
+                    overlay.stop()
+                except Exception:
+                    pass
+
+            if status is not None:
+                if st.last_ok_epoch_ms is not None:
+                    from PySide6.QtCore import QDateTime
+                    t = QDateTime.fromMSecsSinceEpoch(st.last_ok_epoch_ms).toString("HH:mm:ss")
+                    status.setText(f"{st.message} {t}" if st.message else f"Updated {t}")
+                else:
+                    status.setText(st.message or "Ready")
+
+            for name in ("refresh_btn", "run_speedtest_btn"):
+                b = getattr(self, name, None)
+                if b is not None:
+                    try:
+                        b.setEnabled(True)
+                    except Exception:
+                        pass
+        except Exception:
+            # Never let UI state updates crash refresh
             pass
 
 
