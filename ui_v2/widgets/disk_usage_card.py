@@ -1,4 +1,5 @@
 from __future__ import annotations
+from PySide6.QtGui import QFont
 
 from typing import Optional
 import shutil
@@ -77,10 +78,23 @@ class DiskUsageCard(QFrame):
         outer.addLayout(hdr)
 
         self.big = QLabel("—")
+
+        f = QFont()
+
+        f.setStyleHint(QFont.Monospace)
+
+        f.setFixedPitch(True)
+
+        
+        self.big.setFont(f)
+
+        self.big.setMinimumWidth(90)
         self.big.setObjectName("CardBig")
         outer.addWidget(self.big)
 
         self.sub = QLabel("—")
+
+        self.sub.setMinimumWidth(150)
         self.sub.setObjectName("CardSub")
         outer.addWidget(self.sub)
 

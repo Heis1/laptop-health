@@ -2,7 +2,7 @@ from __future__ import annotations
 from typing import Optional
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtGui import QIcon, QFont
-from PySide6.QtWidgets import QPushButton, QFrame, QHBoxLayout, QLabel, QStyle, QVBoxLayout, QWidget
+from PySide6.QtWidgets import QPushButton, QFrame, QHBoxLayout, QLabel, QStyle, QVBoxLayout, QWidget, QSizePolicy
 
 from ui_v2.widgets.sparkline import Sparkline
 from ui_v2.widgets.ring import Ring
@@ -66,6 +66,7 @@ class MetricCard(QFrame):
         left.setSpacing(6)
 
         self.big_lbl = QLabel(big)
+
         self.big_lbl.setObjectName("CardBig")
         self.sub_lbl = QLabel(sub)
         self.sub_lbl.setObjectName("CardSub")
@@ -74,11 +75,14 @@ class MetricCard(QFrame):
         left.addWidget(self.sub_lbl)
         left.addStretch(1)
 
-        content.addLayout(left, 2)
+        content.addLayout(left, 1)
 
         if right_widget is not None:
-            content.addWidget(right_widget, 0, Qt.AlignRight | Qt.AlignVCenter)
-
+            try:
+                right_widget.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Preferred)
+            except Exception:
+                pass
+            content.addWidget(right_widget, 1, Qt.AlignRight | Qt.AlignVCenter)
         outer.addLayout(content)
 
         self.spark = None
@@ -159,6 +163,25 @@ class UpdatesCard(QFrame):
         body.setSpacing(16)
 
         self.big = QLabel("—")
+
+
+        f = QFont()
+
+
+        f.setStyleHint(QFont.Monospace)
+
+
+        f.setFixedPitch(True)
+
+
+        
+
+        self.big.setFont(f)
+
+        self.big.setMinimumWidth(90)
+        self.big.setStyleSheet("")
+
+        self.big.setMinimumWidth(90)
         self.big.setAlignment(Qt.AlignLeft | Qt.AlignTop)
         f = QFont()
         f.setBold(True)

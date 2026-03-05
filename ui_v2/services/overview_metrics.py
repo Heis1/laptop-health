@@ -123,32 +123,53 @@ except Exception:
 
 @dataclass
 class OverviewMetrics:
-    cpu_temp_c: float | None
-    cpu_freq_ghz: float | None
-    cpu_package_w: float | None
-    cpu_vcore_v: float | None
+    cpu_temp_c: float | None = None
+
+    cpu_freq_ghz: float | None = None
+
+    cpu_package_w: float | None = None
+
+    cpu_vcore_v: float | None = None
+
 
     # Home filesystem (contains Path.home())
-    home_used_pct: int | None
-    home_free_gb: float | None
-    home_mount: str | None
+    home_used_pct: int | None = None
+
+    home_free_gb: float | None = None
+
+    home_mount: str | None = None
+
 
     # Root filesystem ("/")
-    root_used_pct: int | None
-    root_free_gb: float | None
+    root_used_pct: int | None = None
 
-    down_mbps: float | None
-    latency_ms: float | None
-    updates_available: int | None
-    security_updates: int | None
-    reboot_required: bool | None
-    kept_back_updates: int
-    held_updates: int
-    updates_badge: str
-    updates_accent: str
-    wakeups_big: str
-    wakeups_sub: str
-    wakeups_accent: str
+    root_free_gb: float | None = None
+
+
+    down_mbps: float | None = None
+
+    latency_ms: float | None = None
+
+    updates_available: int | None = None
+
+    security_updates: int | None = None
+
+    reboot_required: bool | None = None
+
+    kept_back_updates: int = None
+
+    held_updates: int = None
+
+    updates_badge: str = None
+
+    updates_accent: str = None
+
+    wakeups_big: str = None
+
+    wakeups_sub: str = None
+
+    wakeups_accent: str = None
+
 
 
 def _cpu_temp() -> float | None:
