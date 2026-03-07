@@ -1,6 +1,8 @@
 from __future__ import annotations
 
-from PySide6.QtCore import Qt
+import subprocess
+
+from PySide6.QtCore import Qt, QThread, Signal
 from PySide6.QtGui import QFont, QColor
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QTableWidget,
@@ -17,6 +19,7 @@ from ui_v2.services.updates import (
     run_apt_action,
     list_kept_back,
     list_holds,
+    get_apt_action_argv,
 )
 
 _ACCENT_STRIP = UPDATE_ACCENT_RGBA
@@ -40,7 +43,6 @@ QPushButton#ActionBtn:disabled {
     border: 1px solid rgba(255,255,255,0.08);
 }
 
-/* Output log */
 QTextEdit#UpdatesLog {
     background: rgba(10, 14, 22, 0.52);
     color: rgba(255,255,255,0.88);
@@ -49,7 +51,6 @@ QTextEdit#UpdatesLog {
     padding: 10px;
 }
 
-/* Scrollbars */
 QScrollBar:vertical {
     background: transparent;
     width: 10px;
@@ -129,13 +130,57 @@ def _mk_btn(text: str, icon, tip: str) -> QPushButton:
     return b
 
 
+class AptActionRunner(QThread):
+    line = Signal(str)
+    done = Signal(int)
+
+    def __init__(self, action: str, parent=None):
+        super().__init__(parent)
+        self.action = action
+        self._proc: subprocess.Popen[str] | None = None
+
+    def run(self) -> None:
+        try:
+            argv = get_apt_action_argv(self.action)
+        except ValueError as e:
+            self.line.emit(str(e))
+            self.done.emit(2)
+            return
+        except FileNotFoundError as e:
+            self.line.emit(str(e))
+            self.done.emit(127)
+            return
+        except Exception as e:
+            self.line.emit(f"Failed to prepare command: {e}")
+            self.done.emit(1)
+            return
+
+        try:
+            self._proc = subprocess.Popen(
+                argv,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                text=True,
+                bufsize=1,
+                universal_newlines=True,
+            )
+
+            assert self._proc.stdout is not None
+            for raw in self._proc.stdout:
+                line = raw.rstrip()
+                if line:
+                    self.line.emit(line)
+
+            rc = int(self._proc.wait())
+            self.done.emit(rc)
+        except Exception as e:
+            self.line.emit(f"Command failed: {e}")
+            self.done.emit(1)
+        finally:
+            self._proc = None
+
+
 class ConfirmDialog(QDialog):
-    """
-    Premium in-app confirm dialog:
-    - Frameless (no OS title bar / no white header)
-    - Dimmed backdrop (scrim) so text is readable over any page
-    - Centered opaque card with accent strip
-    """
     def __init__(self, parent: QWidget, title: str, message: str, accent: str = "orange"):
         super().__init__(parent)
 
@@ -143,13 +188,11 @@ class ConfirmDialog(QDialog):
         self.setWindowFlags(Qt.Dialog | Qt.FramelessWindowHint)
         self.setAttribute(Qt.WA_TranslucentBackground, True)
 
-        # Match the parent window geometry (so the scrim covers everything)
         host = parent.window()
         self.setGeometry(host.geometry())
 
         strip = _ACCENT_STRIP.get(accent, "rgba(255,190,120,0.95)")
 
-        # Root layout = scrim + centered card
         root = QVBoxLayout(self)
         root.setContentsMargins(0, 0, 0, 0)
         root.setSpacing(0)
@@ -160,7 +203,6 @@ class ConfirmDialog(QDialog):
         scrim_lay.setContentsMargins(0, 0, 0, 0)
         scrim_lay.setSpacing(0)
 
-        # Center row
         row = QHBoxLayout()
         row.setContentsMargins(0, 0, 0, 0)
         row.setSpacing(0)
@@ -184,7 +226,6 @@ class ConfirmDialog(QDialog):
         hdr.addWidget(t)
         hdr.addStretch(1)
 
-        # Close "x"
         self.btn_x = QPushButton("✕")
         self.btn_x.setObjectName("ConfirmX")
         self.btn_x.setCursor(Qt.PointingHandCursor)
@@ -222,10 +263,8 @@ class ConfirmDialog(QDialog):
 
         root.addWidget(scrim)
 
-        # Click outside to cancel
         scrim.mousePressEvent = lambda e: self.reject()
 
-        # Styling (self-contained, no reliance on page styles)
         self.setStyleSheet(f"""
             QFrame#ConfirmScrim {{
                 background: rgba(0, 0, 0, 0.55);
@@ -384,7 +423,6 @@ class UpdatesPage(QWidget):
         self.log.setReadOnly(True)
         self.log.setPlaceholderText("Output will appear here…")
 
-        # Premium "busy" dim effect (no layout changes, still scrollable)
         self._busy_fx_table = QGraphicsOpacityEffect(self.table)
         self._busy_fx_table.setOpacity(1.0)
         self.table.setGraphicsEffect(self._busy_fx_table)
@@ -401,6 +439,7 @@ class UpdatesPage(QWidget):
         root.addWidget(self.log)
 
         self._workers: list[QtWorker] = []
+        self._action_runner: AptActionRunner | None = None
 
         from PySide6.QtCore import QTimer
         self._busy_anim_tick = 0
@@ -411,10 +450,8 @@ class UpdatesPage(QWidget):
         self.refresh()
 
     def _set_badge(self, text: str, accent: str):
-        # Premium badge: bold + pill + subtle tint so it actually pops
         self.badge.setText(text)
         col = _ACCENT_STRIP.get(accent, "rgba(255,255,255,0.85)")
-        # Use same accent for border + soft background
         self.badge.setStyleSheet(
             "font-weight: 800;"
             "letter-spacing: 0.3px;"
@@ -422,7 +459,6 @@ class UpdatesPage(QWidget):
             "border-radius: 999px;"
             f"color: {col};"
             f"border: 1px solid {col};"
-            # A very subtle wash behind the badge
             "background: rgba(255,255,255,0.06);"
         )
 
@@ -433,10 +469,8 @@ class UpdatesPage(QWidget):
             self.lbl_reboot.setText("Reboot: —")
             self.lbl_kept.setText("Kept back: —")
             self.lbl_held.setText("Held: —")
-            
             accent = "red"
             self._set_badge("UNKNOWN", accent)
-            
         else:
             total = int(total)
             sec = 0 if sec is None else int(sec)
@@ -449,7 +483,6 @@ class UpdatesPage(QWidget):
             badge, accent = classify_update_status(total, sec, reb, kept, held)
             self._set_badge(badge, accent)
 
-        # Premium accent border so state is obvious at a glance (especially "no updates")
         strip = _ACCENT_STRIP.get(accent, "rgba(255,255,255,0.14)")
         self.status.setStyleSheet(
             "background: rgba(255,255,255,0.02);"
@@ -508,7 +541,6 @@ class UpdatesPage(QWidget):
             self.table.setItem(r, 2, sec)
             self.table.setItem(r, 3, status)
 
-            # Premium tinting (row-level + status color)
             if is_held:
                 status.setForeground(QColor(255, 150, 150))
                 self._tint_row(r, bg=QColor(255, 120, 120, 28))
@@ -516,16 +548,14 @@ class UpdatesPage(QWidget):
                 status.setForeground(QColor(255, 205, 150))
                 self._tint_row(r, bg=QColor(255, 190, 120, 22))
             elif sec_flag:
-                # subtle wash for security rows (still readable)
                 self._tint_row(r, bg=QColor(150, 190, 255, 16))
 
-            # Emphasis: kept back/held should stand out a bit
             if status_txt != "Upgradable":
                 f2 = status.font(); f2.setBold(True)
                 status.setFont(f2)
                 f3 = name.font(); f3.setBold(True)
                 name.setFont(f3)
-    
+
     def _set_busy(self, busy: bool, msg: str | None = None) -> None:
         for b in (
             self.btn_refresh,
@@ -539,7 +569,6 @@ class UpdatesPage(QWidget):
             except Exception:
                 pass
 
-        # Premium visual feedback: dim content while busy (but keep scroll/copy working)
         try:
             self._busy_fx_table.setOpacity(0.55 if busy else 1.0)
             self._busy_fx_log.setOpacity(0.55 if busy else 1.0)
@@ -561,6 +590,25 @@ class UpdatesPage(QWidget):
                 self._busy_anim.stop()
             except Exception:
                 pass
+
+    def _set_running(self, action: str) -> None:
+        for b in (
+            self.btn_refresh,
+            self.btn_update_lists,
+            self.btn_upgrade,
+            self.btn_full,
+            self.btn_autoremove,
+        ):
+            try:
+                b.setEnabled(False)
+            except Exception:
+                pass
+        try:
+            self._busy_fx_table.setOpacity(0.55)
+            self._busy_fx_log.setOpacity(1.0)
+        except Exception:
+            pass
+        self._set_badge(f"RUNNING {action.upper()}", "orange")
 
     def _tick_busy_badge(self) -> None:
         self._busy_anim_tick = (self._busy_anim_tick + 1) % 4
@@ -587,7 +635,7 @@ class UpdatesPage(QWidget):
         w.signals.error.connect(lambda e: self._append_log(f"[refresh error] {e}"))
         w.signals.finished.connect(lambda: self._set_busy(False))
         self._workers.append(w)
-        self._start_worker(w) 
+        self._start_worker(w)
 
     def _on_refresh(self, res):
         total, sec, reb, items, kept, held = res
@@ -609,16 +657,32 @@ class UpdatesPage(QWidget):
         if dlg.exec() != QDialog.Accepted:
             return
 
-        for b in (self.btn_update_lists, self.btn_upgrade, self.btn_full, self.btn_autoremove, self.btn_refresh):
-            b.setEnabled(False)
-
         self._append_log(f"\n== Running: {action} ==")
+        self._set_running(action)
 
-        w = QtWorker(lambda: run_apt_action(action))
-        w.signals.result.connect(self._on_action_done)
-        w.signals.error.connect(lambda e: self._on_action_done((1, str(e))))
-        self._workers.append(w)
-        self._start_worker(w)
+        self._action_runner = AptActionRunner(action, self)
+        self._action_runner.line.connect(self._append_log)
+        self._action_runner.done.connect(self._on_stream_action_done)
+        self._action_runner.start()
+
+    def _on_stream_action_done(self, rc: int):
+        self._append_log(f"== Exit code: {rc} ==")
+
+        for b in (self.btn_update_lists, self.btn_upgrade, self.btn_full, self.btn_autoremove, self.btn_refresh):
+            b.setEnabled(True)
+
+        if rc == 0:
+            self._set_badge("COMPLETE", "green")
+        else:
+            self._set_badge("FAILED", "red")
+
+        try:
+            self._busy_fx_table.setOpacity(1.0)
+            self._busy_fx_log.setOpacity(1.0)
+        except Exception:
+            pass
+
+        self.refresh()
 
     def _on_action_done(self, res):
         rc, out = res if isinstance(res, tuple) and len(res) == 2 else (1, str(res))
