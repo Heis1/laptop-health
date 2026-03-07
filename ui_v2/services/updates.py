@@ -84,8 +84,6 @@ def _parse_upgrade_sim(out: str) -> list[dict]:
         if "(" in line and ")" in line:
             try:
                 inside = line.split("(", 1)[1].rsplit(")", 1)[0].strip()
-                # inside commonly: "<newver> <repo ...> [arch]"
-                # keep everything after version token as "origin"
                 toks = inside.split(maxsplit=1)
                 if len(toks) == 2:
                     origin = toks[1].strip()
@@ -100,7 +98,6 @@ def _parse_upgrade_sim(out: str) -> list[dict]:
 
 
 def list_upgradable() -> list[dict]:
-    # Use apt-get simulation (stable for scripting, no actual changes)
     rc, out = _run(["bash", "-lc", "apt-get -s upgrade 2>/dev/null"], timeout=25)
     if rc != 0 or not out:
         return []
@@ -110,8 +107,6 @@ def list_upgradable() -> list[dict]:
 def get_update_count() -> Tuple[int | None, int | None]:
     items = list_upgradable()
     if not items:
-        # Could be genuinely 0 updates OR a failure.
-        # Disambiguate by checking the command return code quickly.
         rc, _ = _run(["bash", "-lc", "apt-get -s upgrade 2>/dev/null"], timeout=10)
         if rc != 0:
             return None, None
@@ -122,7 +117,6 @@ def get_update_count() -> Tuple[int | None, int | None]:
 
 
 def list_kept_back() -> list[str]:
-    # Parse kept-back list from apt-get simulation output
     rc, out = _run(["bash", "-lc", "apt-get -s upgrade 2>/dev/null"], timeout=25)
     if rc != 0 or not out:
         return []
@@ -136,7 +130,6 @@ def list_kept_back() -> list[str]:
             if not line.strip() or line.startswith("The following"):
                 break
             kept.extend(line.strip().split())
-    # de-dupe preserve order
     seen = set()
     out_kept = []
     for k in kept:
@@ -151,7 +144,6 @@ def list_holds() -> list[str]:
     if rc != 0 or not out:
         return []
     return [l.strip() for l in out.splitlines() if l.strip()]
-
 
 
 def get_update_summary() -> UpdateSummary:
@@ -170,41 +162,83 @@ def get_update_summary() -> UpdateSummary:
         accent=accent,
     )
 
-def run_apt_action(action: str) -> tuple[int, str]:
-    """
-    Runs apt actions using apt-get (stable for scripting).
-    Uses pkexec when not root.
 
-    Supported actions:
-      update        -> apt-get update
-      upgrade       -> apt-get -y upgrade
-      dist-upgrade  -> apt-get -y dist-upgrade
-      full-upgrade  -> alias of dist-upgrade
-      autoremove    -> apt-get -y autoremove
+def get_apt_action_argv(action: str) -> list[str]:
+    """
+    Build argv for apt actions in a way that is safe for live streaming output.
+    Uses:
+      - Dpkg::Use-Pty=0        -> disables pseudo-tty so output streams cleanly
+      - Dpkg::Progress-Fancy=1 -> keeps dpkg progress/status visible
     """
     action = (action or "").strip().lower()
 
     mapping = {
-        "update": "DEBIAN_FRONTEND=noninteractive apt-get update",
-        "upgrade": "DEBIAN_FRONTEND=noninteractive apt-get -y upgrade",
-        "dist-upgrade": "DEBIAN_FRONTEND=noninteractive apt-get -y dist-upgrade",
-        "full-upgrade": "DEBIAN_FRONTEND=noninteractive apt-get -y dist-upgrade",
-        "autoremove": "DEBIAN_FRONTEND=noninteractive apt-get -y autoremove",
+        "update": [
+            "env", "DEBIAN_FRONTEND=noninteractive",
+            "apt-get",
+            "-o", "Dpkg::Use-Pty=0",
+            "update",
+        ],
+        "upgrade": [
+            "env", "DEBIAN_FRONTEND=noninteractive",
+            "apt-get",
+            "-o", "Dpkg::Use-Pty=0",
+            "-o", "Dpkg::Progress-Fancy=1",
+            "-y", "upgrade",
+        ],
+        "dist-upgrade": [
+            "env", "DEBIAN_FRONTEND=noninteractive",
+            "apt-get",
+            "-o", "Dpkg::Use-Pty=0",
+            "-o", "Dpkg::Progress-Fancy=1",
+            "-y", "dist-upgrade",
+        ],
+        "full-upgrade": [
+            "env", "DEBIAN_FRONTEND=noninteractive",
+            "apt-get",
+            "-o", "Dpkg::Use-Pty=0",
+            "-o", "Dpkg::Progress-Fancy=1",
+            "-y", "dist-upgrade",
+        ],
+        "autoremove": [
+            "env", "DEBIAN_FRONTEND=noninteractive",
+            "apt-get",
+            "-o", "Dpkg::Use-Pty=0",
+            "-o", "Dpkg::Progress-Fancy=1",
+            "-y", "autoremove",
+        ],
     }
 
     if action not in mapping:
-        return 2, f"Unknown action: {action}"
+        raise ValueError(f"Unknown action: {action}")
 
-    cmd = mapping[action]
+    inner = mapping[action]
     is_root = (getattr(os, "geteuid", lambda: 1)() == 0)
 
-    if not is_root:
-        pkexec = shutil.which("pkexec")
-        if not pkexec:
-            return 127, "pkexec not found. Install policykit (pkexec)."
-        argv = [pkexec, "bash", "-lc", cmd]
-    else:
-        argv = ["bash", "-lc", cmd]
+    if is_root:
+        return inner
+
+    pkexec = shutil.which("pkexec")
+    if not pkexec:
+        raise FileNotFoundError("pkexec not found. Install policykit (pkexec).")
+
+    return [pkexec] + inner
+
+
+def run_apt_action(action: str) -> tuple[int, str]:
+    """
+    Compatibility helper for existing callers.
+    Executes the full command and returns combined output only after completion.
+    Live streaming callers should use get_apt_action_argv(action) with Popen.
+    """
+    try:
+        argv = get_apt_action_argv(action)
+    except ValueError as e:
+        return 2, str(e)
+    except FileNotFoundError as e:
+        return 127, str(e)
+    except Exception as e:
+        return 1, f"Command failed: {e}"
 
     try:
         p = subprocess.run(argv, capture_output=True, text=True, timeout=3600)
