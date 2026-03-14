@@ -1,14 +1,15 @@
 # Laptop Health
 
-A lightweight Linux system health dashboard for laptops.
+A modern Linux system health dashboard for laptops.
 
-Laptop Health provides a clean, modern interface for monitoring system performance, thermals, and power state — built with PySide6 and designed for Linux Mint / Ubuntu environments.
+Laptop Health provides a clean, modular interface for monitoring system performance, thermals, storage, network activity, and power state — built with PySide6 and designed for Linux Mint / Ubuntu environments.
 
 ## Project Status
 
-Production releases live on: `main`
+Stable release branch: main  
+UI v2 development branch: feature/new-dashboard-ui  
 
-UI v2 development is happening on: `feature/new-dashboard-ui`
+UI v2 introduces a redesigned dashboard architecture with modular services, live sparklines, improved updates handling, enhanced system insight cards, and sidebar version/update checking.
 
 To preview UI v2:
 
@@ -25,6 +26,8 @@ To preview UI v2:
 - Optional speed testing support
 - Dark mode support
 - Clean, card-based UI layout
+- Sidebar version display
+- GitHub update checking
 
 ## Installation (Debian / Ubuntu / Mint)
 
@@ -34,7 +37,7 @@ Install using:
 
     sudo apt install ./laptop-health_0.4.0-9_amd64.deb
 
-If installing manually:
+Or manually:
 
     sudo dpkg -i laptop-health_0.4.0-9_amd64.deb
     sudo apt -f install
@@ -56,7 +59,7 @@ Install them if needed:
 Optional:
 
 - nvidia-smi (for NVIDIA GPUs)
-- speedtest (Ookla CLI) or speedtest-cli
+- speedtest or speedtest-cli
 
 ## Running
 
@@ -64,7 +67,13 @@ After installation:
 
     laptop-health
 
-Or launch it from your desktop application menu.
+Or from source:
+
+    python main.py
+
+For UI v2 preview:
+
+    python ui_preview_v2.py
 
 ## Development
 
@@ -73,7 +82,7 @@ Clone the repository:
     git clone https://github.com/Heis1/laptop-health.git
     cd laptop-health
 
-Create a development virtual environment:
+Create a virtual environment:
 
     python3 -m venv .venv
     source .venv/bin/activate
@@ -85,27 +94,19 @@ Run:
 
 ## Packaging
 
-The project uses PyInstaller to create a self-contained binary:
+Build using PyInstaller:
 
     pyinstaller --noconfirm --clean --name laptop-health main.py
 
-Debian packaging is handled manually using `dpkg-deb`.
+Debian packaging is handled manually using dpkg-deb.
 
 ## Versioning
 
-Releases are tagged using semantic versioning:
+Releases follow semantic versioning:
 
-    v0.x.y
+    v1.x.y
 
 Binary installers are attached to GitHub Releases.
-
-## Roadmap
-
-- Improved hardware detection
-- Enhanced GPU support
-- Auto-update checks
-- Additional telemetry modules
-- CI-based automated builds
 
 ## Disclaimer
 

@@ -1,0 +1,388 @@
+from __future__ import annotations
+from PySide6.QtCore import Qt, QTimer
+from PySide6.QtGui import QFont
+from PySide6.QtWidgets import (
+    QApplication,
+    QFrame, QHBoxLayout, QLabel, QMainWindow, QStackedWidget,
+    QVBoxLayout, QWidget, QStyle, QToolButton, QMenu, QDialog
+)
+
+from ui_v2.theme import qss
+from ui_v2.version import APP_VERSION
+from ui_v2.services.update_checker import check_for_updates
+from PySide6.QtGui import QDesktopServices
+from PySide6.QtCore import QUrl
+from ui_v2.widgets.aspect_container import AspectRatioContainer
+from ui_v2.widgets.sidebar import Sidebar
+from ui_v2.pages.dashboard import DashboardPage
+from ui_v2.pages.power import PowerPage
+from ui_v2.pages.network import NetworkPage
+from ui_v2.pages.storage import StoragePage
+from ui_v2.pages.updates import UpdatesPage
+from ui_v2.pages.devtools import DevToolsPage
+from ui_v2.widgets.export_report_dialog import ExportReportDialog
+from ui_v2.export.report_pdf import export_current_view_pdf, export_system_report_pdf, capture_widget_pixmap
+
+
+def _git_text(args: list[str]) -> str | None:
+    import subprocess
+    try:
+        r = subprocess.run(args, capture_output=True, text=True, timeout=1.5)
+        if r.returncode == 0:
+            out = (r.stdout or "").strip()
+            return out or None
+    except Exception:
+        pass
+    return None
+
+
+
+def _build_version_text() -> str:
+    return APP_VERSION
+
+
+
+class MainWindow(QMainWindow):
+    def __init__(self):
+        super().__init__()
+
+        # Modern UI font
+        app_font = QFont("Segoe UI")
+        app_font.setPointSize(10)
+        self.setFont(app_font)
+        self.setWindowTitle("Laptop Health (UI v2)")
+        # Keep the dashboard tight (prevents wide dead space)
+        self.resize(1180, 780)
+        self.setMinimumWidth(1080)
+        self.setMaximumWidth(1280)
+        self.resize(1280, 820)
+
+        root = QWidget()
+        # Keep dashboard proportional inside the window (no scrollbars).
+        self._aspect = AspectRatioContainer(ratio=423/259)
+        self.resize(1269, 777)
+        self.setMinimumSize(1269, 777)
+        self._aspect.setWidget(root)
+        self.setCentralWidget(self._aspect)
+        main = QHBoxLayout(root)
+        main.setContentsMargins(18, 18, 18, 18)
+        main.setSpacing(16)
+
+        left_col = QWidget()
+        left_col_l = QVBoxLayout(left_col)
+        left_col_l.setContentsMargins(0, 0, 0, 0)
+        left_col_l.setSpacing(10)
+
+        self.sidebar = Sidebar()
+        left_col_l.addWidget(self.sidebar)
+
+        left_col_l.addStretch(1)
+
+        self.version_lbl = QLabel(_build_version_text())
+        self.version_lbl.setObjectName("SidebarVersion")
+        self.version_lbl.setAlignment(Qt.AlignLeft | Qt.AlignBottom)
+        self.version_lbl.setWordWrap(True)
+        self.version_lbl.setTextInteractionFlags(Qt.TextSelectableByMouse)
+        self.version_lbl.setStyleSheet(
+            "color: rgba(255,255,255,0.50);"
+            "padding: 2px 6px 0 6px;"
+            "font-size: 11px;"
+        )
+        left_col_l.addWidget(self.version_lbl)
+
+        # --- Update check UI ---
+        self.update_status = QLabel("Status: Not checked")
+        self.update_status.setStyleSheet("color: rgba(255,255,255,0.45); font-size:11px;")
+        left_col_l.addWidget(self.update_status)
+
+        from PySide6.QtWidgets import QPushButton
+        self.btn_check_updates = QPushButton("Check for updates")
+        self.btn_check_updates.setCursor(Qt.PointingHandCursor)
+        left_col_l.addWidget(self.btn_check_updates)
+
+        self.btn_check_updates.clicked.connect(self._check_updates)
+
+
+        main.addWidget(left_col)
+
+        content = QWidget()
+        c = QVBoxLayout(content)
+        c.setContentsMargins(0, 0, 0, 0)
+        c.setSpacing(16)
+        main.addWidget(content, 1)
+
+        top = QFrame()
+        t = QHBoxLayout(top)
+        t.setContentsMargins(6, 6, 6, 6)
+        t.setSpacing(12)
+
+        title = QLabel("Laptop Health Dashboard")
+        title.setObjectName("PageTitle")
+        t.addWidget(title)
+        t.addStretch(1)
+
+       #Export Button configuration
+        self.btn_export = QToolButton()
+        self.btn_export.setObjectName("TopBtn")
+        self.btn_export.setIcon(self.style().standardIcon(QStyle.SP_DialogSaveButton))
+        self.btn_export.setText("Export")
+        self.btn_export.setToolTip("Export options")
+        self.btn_export.setToolButtonStyle(Qt.ToolButtonTextBesideIcon)
+        self.btn_export.setPopupMode(QToolButton.InstantPopup)
+
+        export_menu = QMenu(self)
+        act_current = export_menu.addAction("Export current view (PDF)...")
+        act_current.triggered.connect(self._export_current_pdf)
+        act_report = export_menu.addAction("Export system report (PDF)...")
+        act_report.triggered.connect(self._export_system_report)
+
+        self.btn_export.setMenu(export_menu)
+        t.addWidget(self.btn_export)
+
+       #Exit Button configuration
+
+        exit_btn = QToolButton()
+        exit_btn.setObjectName("ExitBtn")
+        exit_btn.setToolTip("Exit Laptop Health")
+
+        exit_btn.setText("⏻")
+        exit_btn.setFont(QFont("Segoe UI", 18))
+
+        exit_btn.setAutoRaise(True)
+        exit_btn.clicked.connect(self.close)
+
+        t.addWidget(exit_btn) 
+        
+        
+        c.addWidget(top)
+
+        self.stack = QStackedWidget()
+        self.pages = {
+            "dashboard": DashboardPage(),
+            "power": PowerPage(),
+            "storage": StoragePage(),
+            "network": NetworkPage(),
+            "updates": UpdatesPage(),
+            "dev": DevToolsPage(),
+        }
+        self.page_order = ["dashboard", "power", "storage", "network", "updates", "dev"]
+        for k in self.page_order:
+            self.stack.addWidget(self.pages[k])
+        c.addWidget(self.stack, 1)
+
+
+        self.sidebar.buttons["dashboard"].clicked.connect(lambda: self._go("dashboard"))
+        self.sidebar.buttons["power"].clicked.connect(lambda: self._go("power"))
+        self.sidebar.buttons["storage"].clicked.connect(lambda: self._go("storage"))
+        self.sidebar.buttons["network"].clicked.connect(lambda: self._go("network"))
+        self.sidebar.buttons["updates"].clicked.connect(lambda: self._go("updates"))
+        # Dev Tools is only present in developer mode
+        if "dev" in getattr(self.sidebar, "buttons", {}):
+            self.sidebar.buttons["dev"].clicked.connect(lambda: self._go("dev"))
+        self.setStyleSheet(qss())
+
+        # Optional: auto-check for updates once shortly after launch
+        QTimer.singleShot(1200, lambda: self._check_updates(silent=True))
+
+    def closeEvent(self, event):
+        from PySide6.QtCore import QThreadPool
+
+        try:
+            # 1) Stop timers first
+            pages = getattr(self, "pages", {}) or {}
+            for page in pages.values():
+                t = getattr(page, "timer", None)
+                if t is not None:
+                    try:
+                        t.stop()
+                    except Exception:
+                        pass
+
+            # 2) Stop ALL queued global workers + wait briefly
+            pool = QThreadPool.globalInstance()
+            pool.clear()
+            pool.waitForDone(1500)
+
+            # 3) Clear worker refs after pool drained
+            for page in pages.values():
+                if hasattr(page, "_workers"):
+                    try:
+                        page._workers.clear()
+                    except Exception:
+                        pass
+
+        finally:
+            try:
+                event.accept()
+            except Exception:
+                pass
+
+    def _export_current_pdf(self) -> None:
+        from PySide6.QtWidgets import QFileDialog
+        from PySide6.QtCore import QDateTime
+
+        target = self.stack.currentWidget()
+        if target is None:
+            return
+        self.raise_()
+        self.activateWindow()
+        target.repaint()
+        QApplication.processEvents()
+
+        ts = QDateTime.currentDateTime().toString("yyyy-MM-dd_HHmmss")
+        default_name = f"laptop-health_{ts}.pdf"
+
+        path, _ = QFileDialog.getSaveFileName(
+            self,
+            "Export current view",
+            default_name,
+            "PDF Files (*.pdf)",
+        )
+
+        if not path:
+            return
+
+        export_current_view_pdf(target, path)
+
+    def _export_system_report(self) -> None:
+        from PySide6.QtWidgets import QFileDialog
+        from PySide6.QtCore import QDateTime
+
+        dialog = ExportReportDialog(self)
+        if dialog.exec() != QDialog.Accepted:
+            return
+
+        selections = dialog.selected_sections()
+        if not selections:
+            return
+
+        ts = QDateTime.currentDateTime().toString("yyyy-MM-dd_HHmmss")
+        default_name = f"laptop-health_report_{ts}.pdf"
+
+        path, _ = QFileDialog.getSaveFileName(
+            self,
+            "Export system report",
+            default_name,
+            "PDF Files (*.pdf)",
+        )
+
+        if not path:
+            return
+
+        screenshots: dict[str, object] = {}
+
+        # Only capture the dashboard screenshot for the report (sections are text)
+        if selections.get("dashboard", False):
+            current_index = self.stack.currentIndex()
+            dash_idx = self.page_order.index("dashboard")
+            if self.stack.currentIndex() != dash_idx:
+                self.stack.setCurrentIndex(dash_idx)
+
+            self.raise_()
+            self.activateWindow()
+            w = self.pages.get("dashboard")
+            if w is not None:
+                w.repaint()
+                QApplication.processEvents()
+                screenshots["dashboard"] = capture_widget_pixmap(w, scale=2.0)
+
+            # restore previous page
+            if self.stack.currentIndex() != current_index:
+                self.stack.setCurrentIndex(current_index)
+
+        export_system_report_pdf(
+            path=path,
+            screenshots=screenshots,
+            sections=selections,
+        )
+
+        if self.stack.currentIndex() != current_index:
+            self.stack.setCurrentIndex(current_index)
+
+    def _go(self, key: str) -> None:
+        self._set_active_nav(key)
+        self.stack.setCurrentIndex(self.page_order.index(key))
+        self._set_active_nav(key)
+
+    def _set_active_nav(self, key: str):
+        for k, btn in self.sidebar.buttons.items():
+            btn.setProperty("active", "1" if k == key else "0")
+            btn.style().unpolish(btn)
+            btn.style().polish(btn)
+            btn.update()
+
+    def _check_updates(self, silent: bool = False):
+        from ui_v2.workers import Worker
+        from ui_v2.version import APP_VERSION
+        from PySide6.QtCore import QThreadPool
+
+        if not silent:
+            self.update_status.setText("Checking for updates...")
+        self.btn_check_updates.setEnabled(False)
+
+        w = Worker(lambda: check_for_updates(APP_VERSION))
+
+        def done(res):
+            self.btn_check_updates.setEnabled(True)
+
+            if not res.ok:
+                self.update_status.setText("Unable to check for updates")
+                try:
+                    self.btn_check_updates.clicked.disconnect()
+                except Exception:
+                    pass
+                self.btn_check_updates.setText("Check for updates")
+                self.btn_check_updates.clicked.connect(self._check_updates)
+                return
+
+            if res.update_available:
+                self.update_status.setText(f"Update available: {res.latest_version}")
+                self.btn_check_updates.setText("Open Releases Page")
+
+                try:
+                    self.btn_check_updates.clicked.disconnect()
+                except Exception:
+                    pass
+
+                def open_page():
+                    if res.release_url:
+                        QDesktopServices.openUrl(QUrl(res.release_url))
+
+                self.btn_check_updates.clicked.connect(open_page)
+            else:
+                self.update_status.setText("Status: Up to date")
+
+                try:
+                    self.btn_check_updates.clicked.disconnect()
+                except Exception:
+                    pass
+                self.btn_check_updates.setText("Check for updates")
+                self.btn_check_updates.clicked.connect(self._check_updates)
+
+        w.signals.finished.connect(done)
+        QThreadPool.globalInstance().start(w)
+
+
+        def done(res):
+            self.btn_check_updates.setEnabled(True)
+
+            if not res.ok:
+                self.update_status.setText("Unable to check for updates")
+                return
+
+            if res.update_available:
+                self.update_status.setText(f"Update available: {res.latest_version}")
+                self.btn_check_updates.setText("Open Releases Page")
+
+                def open_page():
+                    QDesktopServices.openUrl(QUrl(res.release_url))
+
+                self.btn_check_updates.clicked.disconnect()
+                self.btn_check_updates.clicked.connect(open_page)
+
+            else:
+                self.update_status.setText("Status: Up to date")
+
+        w.signals.finished.connect(done)
+        from PySide6.QtCore import QThreadPool
+        QThreadPool.globalInstance().start(w)
