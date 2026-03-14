@@ -2,7 +2,7 @@
 
 
 a = Analysis(
-    ['main.py'],
+    ['ui_preview_v2.py'],
     pathex=[],
     binaries=[],
     datas=[],
