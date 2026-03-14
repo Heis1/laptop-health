@@ -27,7 +27,7 @@ if [[ -n "${REV:-}" ]]; then
   : # user provided REV
 else
   last_rev="$(
-    ls -1 "pkg/${APP_NAME}_${VERSION}-"*_"${ARCH}.deb" 2>/dev/null \
+    find pkg -maxdepth 1 -type f -name "${APP_NAME}_${VERSION}-*_${ARCH}.deb" 2>/dev/null \
       | sed -n "s/.*_${VERSION}-\([0-9]\+\)_${ARCH}\.deb/\1/p" \
       | sort -n \
       | tail -n 1
@@ -106,7 +106,7 @@ have pyinstaller || die "pyinstaller not available in venv (pip install pyinstal
 if [ "$NO_BUILD" = false ]; then
     echo "[i] Building PyInstaller bundle..."
     rm -rf build dist
-    pyinstaller "$SPEC"
+    pyinstaller "$SPEC_FILE"
 else
     echo "[i] Skipping PyInstaller build (--no-build)"
 fi
