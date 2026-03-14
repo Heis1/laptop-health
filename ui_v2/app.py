@@ -1,5 +1,6 @@
 from __future__ import annotations
 from PySide6.QtCore import Qt
+from PySide6.QtGui import QFont
 from PySide6.QtWidgets import (
     QApplication,
     QFrame, QHBoxLayout, QLabel, QMainWindow, QStackedWidget,
@@ -19,12 +20,34 @@ from ui_v2.widgets.export_report_dialog import ExportReportDialog
 from ui_v2.export.report_pdf import export_current_view_pdf, export_system_report_pdf, capture_widget_pixmap
 
 
+def _git_text(args: list[str]) -> str | None:
+    import subprocess
+    try:
+        r = subprocess.run(args, capture_output=True, text=True, timeout=1.5)
+        if r.returncode == 0:
+            out = (r.stdout or "").strip()
+            return out or None
+    except Exception:
+        pass
+    return None
+
+
+def _build_version_text() -> str:
+    version = "v0.9.0-dev"
+    branch = _git_text(["git", "branch", "--show-current"])
+    commit = _git_text(["git", "rev-parse", "--short", "HEAD"])
+    if branch and commit:
+        return f"{version}\n{branch} ({commit})"
+    if commit:
+        return f"{version}\n({commit})"
+    return version
+
+
 class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
 
         # Modern UI font
-        from PySide6.QtGui import QFont
         app_font = QFont("Segoe UI")
         app_font.setPointSize(10)
         self.setFont(app_font)
@@ -46,8 +69,29 @@ class MainWindow(QMainWindow):
         main.setContentsMargins(18, 18, 18, 18)
         main.setSpacing(16)
 
+        left_col = QWidget()
+        left_col_l = QVBoxLayout(left_col)
+        left_col_l.setContentsMargins(0, 0, 0, 0)
+        left_col_l.setSpacing(10)
+
         self.sidebar = Sidebar()
-        main.addWidget(self.sidebar)
+        left_col_l.addWidget(self.sidebar)
+
+        left_col_l.addStretch(1)
+
+        self.version_lbl = QLabel(_build_version_text())
+        self.version_lbl.setObjectName("SidebarVersion")
+        self.version_lbl.setAlignment(Qt.AlignLeft | Qt.AlignBottom)
+        self.version_lbl.setWordWrap(True)
+        self.version_lbl.setTextInteractionFlags(Qt.TextSelectableByMouse)
+        self.version_lbl.setStyleSheet(
+            "color: rgba(255,255,255,0.50);"
+            "padding: 2px 6px 0 6px;"
+            "font-size: 11px;"
+        )
+        left_col_l.addWidget(self.version_lbl)
+
+        main.addWidget(left_col)
 
         content = QWidget()
         c = QVBoxLayout(content)
@@ -84,7 +128,6 @@ class MainWindow(QMainWindow):
         t.addWidget(self.btn_export)
 
        #Exit Button configuration
-        from PySide6.QtGui import QFont
 
         exit_btn = QToolButton()
         exit_btn.setObjectName("ExitBtn")
