@@ -9,6 +9,8 @@ LATEST_RELEASE_API = f"https://api.github.com/repos/{GITHUB_REPO}/releases/lates
 RELEASES_PAGE_URL = f"https://github.com/{GITHUB_REPO}/releases"
 EXPECTED_RELEASE_HOST = "github.com"
 EXPECTED_RELEASE_PATH_PREFIX = f"/{GITHUB_REPO}/releases/"
+EXPECTED_DOWNLOAD_PATH_PREFIX = f"/{GITHUB_REPO}/releases/download/"
+ALLOWED_DOWNLOAD_HOSTS = ("github.com", "objects.githubusercontent.com")
 
 @dataclass
 class UpdateCheckResult:
@@ -16,6 +18,7 @@ class UpdateCheckResult:
     current_version: str
     latest_version: str | None = None
     release_url: str | None = None
+    deb_download_url: str | None = None
     update_available: bool = False
     error: str | None = None
 
@@ -40,6 +43,40 @@ def _validated_release_url(url: str | None) -> str | None:
     return url
 
 
+def _validated_download_url(url: str | None) -> str | None:
+    if not url:
+        return None
+    parsed = urlparse(url)
+    if parsed.scheme != "https":
+        return None
+    if parsed.netloc.lower() not in ALLOWED_DOWNLOAD_HOSTS:
+        return None
+    if parsed.netloc.lower() == "github.com" and not parsed.path.startswith(EXPECTED_DOWNLOAD_PATH_PREFIX):
+        return None
+    if ".deb" not in parsed.path:
+        return None
+    return url
+
+
+def _pick_deb_asset_url(assets: list[dict]) -> str | None:
+    candidates = []
+    for asset in assets:
+        url = _validated_download_url(asset.get("browser_download_url"))
+        if not url:
+            continue
+        name = str(asset.get("name") or "").lower()
+        score = 0
+        if "amd64" in name:
+            score += 2
+        if name.endswith(".deb"):
+            score += 1
+        candidates.append((score, name, url))
+    if not candidates:
+        return None
+    candidates.sort(reverse=True)
+    return candidates[0][2]
+
+
 def check_for_updates(current_version: str) -> UpdateCheckResult:
     try:
         req = urllib.request.Request(
@@ -54,6 +91,7 @@ def check_for_updates(current_version: str) -> UpdateCheckResult:
 
         latest = data.get("tag_name")
         url = _validated_release_url(data.get("html_url")) or RELEASES_PAGE_URL
+        deb_download_url = _pick_deb_asset_url(data.get("assets") or [])
 
         if not latest:
             raise RuntimeError("Invalid release response")
@@ -65,6 +103,7 @@ def check_for_updates(current_version: str) -> UpdateCheckResult:
             current_version=current_version,
             latest_version=latest,
             release_url=url,
+            deb_download_url=deb_download_url,
             update_available=update_available,
         )
 
