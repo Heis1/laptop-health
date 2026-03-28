@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from collections import deque
 from PySide6.QtWidgets import QFrame, QVBoxLayout, QLabel, QSizePolicy, QHBoxLayout
+from ui_v2.widgets.cards import apply_responsive_card_fonts
 from ui_v2.widgets.sparkline import Sparkline
 
 
@@ -55,6 +56,7 @@ class CpuDetailsCard(QFrame):
         self._state: str = "Load"
         self._pending_state: str | None = None
         self._pending_hits: int = 0
+        self._freq_smoothed: float | None = None
 
         outer = QVBoxLayout(self)
         outer.setContentsMargins(18, 16, 18, 16)
@@ -109,6 +111,11 @@ class CpuDetailsCard(QFrame):
         self.spark = Sparkline(list(self._freq_hist), accent="green")
         self.spark.setMinimumHeight(52)
         outer.addWidget(self.spark)
+        apply_responsive_card_fonts(self)
+
+    def resizeEvent(self, event) -> None:
+        super().resizeEvent(event)
+        apply_responsive_card_fonts(self)
 
     def _apply_state(self, new_state: str) -> None:
         if new_state == self._state:
@@ -171,7 +178,13 @@ class CpuDetailsCard(QFrame):
 
             self._update_state_smoothed(ghz)
 
-            self._freq_hist.append(_norm01(ghz, 0.4, 4.8))
+            if self._freq_smoothed is None:
+                self._freq_smoothed = ghz
+            else:
+                # Smooth the visual trend so it behaves like the calmer dashboard sparklines.
+                self._freq_smoothed = (self._freq_smoothed * 0.7) + (ghz * 0.3)
+
+            self._freq_hist.append(_norm01(self._freq_smoothed, 0.4, 4.8))
             if hasattr(self.spark, "set_points"):
                 self.spark.set_points(list(self._freq_hist))
             else:
@@ -179,3 +192,4 @@ class CpuDetailsCard(QFrame):
                 self.spark.update()
         else:
             self.freq_value.setText("— GHz")
+            self._freq_smoothed = None

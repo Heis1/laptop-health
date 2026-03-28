@@ -5,6 +5,7 @@ from typing import Optional
 import shutil
 
 from PySide6.QtWidgets import QFrame, QHBoxLayout, QLabel, QStyle, QVBoxLayout
+from ui_v2.widgets.cards import apply_responsive_card_fonts
 from ui_v2.widgets.progressbar import SlimBar
 
 
@@ -60,6 +61,7 @@ class DiskUsageCard(QFrame):
 
         self.setObjectName("Card")
         self.setProperty("accent", "orange")
+        self.setProperty("_responsive_width_divisor", 2)
         self.setMinimumHeight(120)  # reduced height
 
         outer = QVBoxLayout(self)
@@ -88,14 +90,13 @@ class DiskUsageCard(QFrame):
         
         self.big.setFont(f)
 
-        self.big.setMinimumWidth(90)
         self.big.setObjectName("CardBig")
+        self.big.setWordWrap(True)
         outer.addWidget(self.big)
 
         self.sub = QLabel("—")
-
-        self.sub.setMinimumWidth(150)
         self.sub.setObjectName("CardSub")
+        self.sub.setWordWrap(True)
         outer.addWidget(self.sub)
 
         self.bar = SlimBar()
@@ -112,6 +113,11 @@ class DiskUsageCard(QFrame):
             self.sub.setText(free_text or "—")
         else:
             self.refresh()
+        apply_responsive_card_fonts(self)
+
+    def resizeEvent(self, event) -> None:
+        super().resizeEvent(event)
+        apply_responsive_card_fonts(self)
 
     def set_disk(self, used_pct: int | None, free_gb: float | None):
         if used_pct is None:

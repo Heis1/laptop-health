@@ -3,12 +3,11 @@ from PySide6.QtCore import Qt
 from PySide6.QtGui import QFont
 from PySide6.QtWidgets import (
     QApplication,
-    QFrame, QHBoxLayout, QLabel, QMainWindow, QStackedWidget,
+    QFrame, QHBoxLayout, QMainWindow, QStackedWidget,
     QVBoxLayout, QWidget, QStyle, QToolButton, QMenu, QDialog
 )
 
 from ui_v2.theme import qss
-from ui_v2.widgets.aspect_container import AspectRatioContainer
 from ui_v2.widgets.sidebar import Sidebar
 from ui_v2.pages.dashboard import DashboardPage
 from ui_v2.pages.power import PowerPage
@@ -29,22 +28,14 @@ class MainWindow(QMainWindow):
         app_font.setPointSize(10)
         self.setFont(app_font)
         self.setWindowTitle("Laptop Health (UI v2)")
-        # Keep the dashboard tight (prevents wide dead space)
-        self.resize(1180, 780)
-        self.setMinimumWidth(1080)
-        self.setMaximumWidth(1280)
         self.resize(1280, 820)
+        self.setMinimumSize(980, 700)
 
         root = QWidget()
-        # Keep dashboard proportional inside the window (no scrollbars).
-        self._aspect = AspectRatioContainer(ratio=423/259)
-        self.resize(1269, 777)
-        self.setMinimumSize(1269, 777)
-        self._aspect.setWidget(root)
-        self.setCentralWidget(self._aspect)
+        self.setCentralWidget(root)
         main = QHBoxLayout(root)
-        main.setContentsMargins(18, 18, 18, 18)
-        main.setSpacing(16)
+        main.setContentsMargins(16, 14, 16, 16)
+        main.setSpacing(14)
 
         left_col = QWidget()
         left_col_l = QVBoxLayout(left_col)
@@ -53,23 +44,20 @@ class MainWindow(QMainWindow):
 
         self.sidebar = Sidebar()
         left_col_l.addWidget(self.sidebar)
+        left_col.setMaximumWidth(260)
 
         main.addWidget(left_col)
 
         content = QWidget()
         c = QVBoxLayout(content)
         c.setContentsMargins(0, 0, 0, 0)
-        c.setSpacing(16)
+        c.setSpacing(8)
         main.addWidget(content, 1)
 
         top = QFrame()
         t = QHBoxLayout(top)
-        t.setContentsMargins(6, 6, 6, 6)
-        t.setSpacing(12)
-
-        title = QLabel("Laptop Health Dashboard")
-        title.setObjectName("PageTitle")
-        t.addWidget(title)
+        t.setContentsMargins(0, 0, 0, 0)
+        t.setSpacing(10)
         t.addStretch(1)
 
        #Export Button configuration
@@ -105,7 +93,7 @@ class MainWindow(QMainWindow):
         t.addWidget(exit_btn) 
         
         
-        c.addWidget(top)
+        c.addWidget(top, 0, Qt.AlignTop)
 
         self.stack = QStackedWidget()
         self.pages = {

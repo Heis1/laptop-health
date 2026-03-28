@@ -3,10 +3,9 @@ from __future__ import annotations
 from collections import deque
 
 from PySide6.QtCore import QThreadPool, QTimer
-from PySide6.QtGui import QFontMetrics
 from PySide6.QtWidgets import QWidget, QVBoxLayout, QGridLayout, QSizePolicy
 
-from ui_v2.widgets.cards import MetricCard, UpdatesCard
+from ui_v2.widgets.cards import MetricCard, UpdatesCard, WakeupsCard, apply_responsive_card_fonts
 from ui_v2.widgets.disk_usage_card import DiskUsageCard
 from ui_v2.widgets.network_card import NetworkCard
 from ui_v2.widgets.inspector import Inspector
@@ -17,12 +16,13 @@ from ui_v2.services.refresh_controller import RefreshController, RefreshState
 
 
 def _fix_top_row_heights(*widgets, h: int = 165) -> None:
-    # Force consistent height for top-row cards (CPU/GPU/Disk Usage)
+    # Keep a readable minimum height but still allow resize.
     for w in widgets:
         try:
             w.setMinimumHeight(h)
             w.setMaximumHeight(16777215)
             w.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+            w.setMinimumWidth(0)
         except Exception:
             pass
 
@@ -54,6 +54,8 @@ class DashboardPage(QWidget):
         super().__init__()
         self.pool = QThreadPool()
         self._workers: list[object] = []
+        self._top_cards: list[QWidget] = []
+        self._mid_cards: list[QWidget] = []
 
         # Sparkline histories (store 0..1 floats)
         self._cpu_hist = deque([0.0] * 30, maxlen=30)
@@ -84,21 +86,23 @@ class DashboardPage(QWidget):
         outer.setSpacing(12)
 
         grid = QGridLayout()
-        # Lock dashboard columns so card content can't resize layout
-        grid.setColumnStretch(0, 2)
-        grid.setColumnStretch(1, 2)
-        grid.setColumnStretch(2, 2)
-        grid.setColumnStretch(3, 2)
         grid.setHorizontalSpacing(12)
         grid.setVerticalSpacing(12)
-        grid.setColumnStretch(0, 1)
-        grid.setColumnStretch(1, 1)
-        grid.setColumnStretch(2, 2)
-        grid.setColumnStretch(3, 2)
+        # Keep the 1-column cards visibly wider while preserving the 2-column spans.
+        grid.setColumnStretch(0, 3)
+        grid.setColumnStretch(1, 3)
+        grid.setColumnStretch(2, 4)
+        grid.setColumnStretch(3, 4)
 
         # Top row
         self.cpu = MetricCard("CPU", "—", "—", "green", spark_points=[0.0]*24)
         self.gpu = MetricCard("GPU", "—", "—", "blue", spark_points=[0.0]*24)
+        self.cpu.big_lbl.setObjectName("CardHuge")
+        self.gpu.big_lbl.setObjectName("CardHuge")
+        self.cpu.sub_lbl.setWordWrap(True)
+        self.gpu.sub_lbl.setWordWrap(True)
+        apply_responsive_card_fonts(self.cpu)
+        apply_responsive_card_fonts(self.gpu)
 
         self.disk = DiskUsageCard(0, "—")
         try:
@@ -107,52 +111,40 @@ class DashboardPage(QWidget):
             pass
 
         _fix_top_row_heights(self.cpu, self.gpu, self.disk, h=165)
+        for w in (self.cpu, self.gpu):
+            w.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Expanding)
+            w.setMinimumWidth(0)
+        self._top_cards = [self.cpu, self.gpu, self.disk]
 
         grid.addWidget(self.cpu, 0, 0)
         grid.addWidget(self.gpu, 0, 1)
         grid.addWidget(self.disk, 0, 2, 1, 2)
 
         # Second row
-        self.wakeups = MetricCard("Wakeups", "—", "—", "green")
-        # Prevent layout shift when ctx/s goes 4->5 digits
-        try:
-            fm = QFontMetrics(self.wakeups.big_lbl.font())
-            self.wakeups.big_lbl.setMinimumWidth(fm.horizontalAdvance('99999 ctx/s') + 10)
-        except Exception:
-            pass
+        self.wakeups = WakeupsCard("green")
         self.updates = UpdatesCard("red")
         self.updates.details_requested.connect(self._go_updates)
         self.net = NetworkCard()
 
-        for w in (self.wakeups, self.updates, self.net):
-            w.setFixedHeight(165)
-            w.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+        for w in (self.wakeups, self.updates):
+            w.setMinimumHeight(165)
+            w.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Expanding)
+            w.setMinimumWidth(0)
+        self.net.setMinimumHeight(165)
+        self.net.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+        self.net.setMinimumWidth(0)
+        self._mid_cards = [self.wakeups, self.updates, self.net]
 
         grid.addWidget(self.wakeups, 1, 0)
         grid.addWidget(self.updates, 1, 1)
         grid.addWidget(self.net, 1, 2, 1, 2)
 
-        # ---- Layout lock: prevent Disk/Net minimum size from squeezing cols 0/1 ----
-        try:
-            # Determine a sane minimum width for the "small" cards (col 0/1)
-            w0 = self.cpu.sizeHint().width()
-            w1 = self.gpu.sizeHint().width()
-            w2 = self.wakeups.sizeHint().width()
-            w3 = self.updates.sizeHint().width()
-            min_w = max(w0, w1, w2, w3)
-
-            # Lock both small columns to at least this width
-            grid.setColumnMinimumWidth(0, min_w)
-            grid.setColumnMinimumWidth(1, min_w)
-
-            # Make sure the small cards agree they can expand
-            for card in (self.cpu, self.gpu, self.wakeups, self.updates):
-                try:
-                    card.setMinimumWidth(min_w)
-                except Exception:
-                    pass
-        except Exception:
-            pass
+        # Let cards compress with the window instead of pinning desktop widths.
+        for card in (self.cpu, self.gpu, self.disk, self.wakeups, self.updates, self.net):
+            try:
+                card.setMinimumWidth(0)
+            except Exception:
+                pass
 
         outer.addLayout(grid)
         self.inspector = Inspector()
@@ -183,6 +175,41 @@ class DashboardPage(QWidget):
 
         # GPU cadence gate (~5s)
         self._gpu_last_ts = 0.0
+        self._apply_responsive_card_sizes()
+
+    def resizeEvent(self, event) -> None:
+        super().resizeEvent(event)
+        self._apply_responsive_card_sizes()
+
+    def _apply_responsive_card_sizes(self) -> None:
+        width = max(900, self.width())
+        if width >= 1400:
+            row_h = 175
+            spark_h = 54
+        elif width >= 1180:
+            row_h = 165
+            spark_h = 48
+        elif width >= 1020:
+            row_h = 156
+            spark_h = 42
+        else:
+            row_h = 148
+            spark_h = 38
+
+        for card in self._top_cards + self._mid_cards:
+            try:
+                card.setMinimumHeight(row_h)
+                card.setMaximumHeight(16777215)
+            except Exception:
+                pass
+
+        for spark_owner in (self.cpu, self.gpu):
+            try:
+                if getattr(spark_owner, "spark", None) is not None:
+                    spark_owner.spark.setMinimumHeight(spark_h)
+                    spark_owner.spark.setMaximumHeight(spark_h)
+            except Exception:
+                pass
 
     def _refresh_fast(self):
         # Fast metrics (non-blocking)

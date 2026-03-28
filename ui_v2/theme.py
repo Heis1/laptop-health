@@ -35,6 +35,12 @@ def _qss_base() -> str:
         font-weight: 800;
     }}
 
+    #PageTitle {{
+        color: {TEXT};
+        font-size: 20px;
+        font-weight: 800;
+    }}
+
     #NavBtn {{
         background: #12223a;
         color: #cbd5e1;
@@ -93,6 +99,37 @@ def _qss_base() -> str:
     #CardSub {{
         color: {TEXT_MUTED};
         font-size: 12px;
+    }}
+
+    #Badge {{
+        color: #f8fbff;
+        background: rgba(96,165,250,0.16);
+        border: 1px solid rgba(96,165,250,0.26);
+        border-radius: 10px;
+        padding: 5px 10px;
+        font-size: 11px;
+        font-weight: 700;
+    }}
+
+    QPushButton#Badge {{
+        text-align: center;
+    }}
+
+    QPushButton#Badge:hover {{
+        background: rgba(96,165,250,0.22);
+        border: 1px solid rgba(96,165,250,0.34);
+    }}
+
+    #InspectorTitle {{
+        color: {TEXT};
+        font-size: 16px;
+        font-weight: 800;
+    }}
+
+    #InspectorSub {{
+        color: {TEXT_MUTED};
+        font-size: 12px;
+        font-weight: 600;
     }}
 
     #InspectorContainer {{
