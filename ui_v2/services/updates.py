@@ -84,6 +84,40 @@ def _apt_mark_showhold_cmd() -> list[str]:
     return [_resolve_trusted("apt-mark"), "showhold"]
 
 
+def _preferred_action_frontend() -> tuple[str, str]:
+    for cmd in ("nala", "apt-get"):
+        try:
+            return cmd, _resolve_trusted(cmd)
+        except FileNotFoundError:
+            continue
+    raise FileNotFoundError("Neither nala nor apt-get was found")
+
+
+def get_apt_action_description(action: str) -> str:
+    action = (action or "").strip().lower()
+    frontend, _ = _preferred_action_frontend()
+    if frontend == "nala":
+        mapping = {
+            "update": "nala update",
+            "upgrade": "nala upgrade -y",
+            "dist-upgrade": "nala full-upgrade -y",
+            "full-upgrade": "nala full-upgrade -y",
+            "autoremove": "nala autoremove -y",
+        }
+    else:
+        mapping = {
+            "update": "apt-get update",
+            "upgrade": "apt-get -y upgrade",
+            "dist-upgrade": "apt-get -y dist-upgrade",
+            "full-upgrade": "apt-get -y dist-upgrade",
+            "autoremove": "apt-get -y autoremove",
+        }
+
+    if action not in mapping:
+        raise ValueError(f"Unknown action: {action}")
+    return mapping[action]
+
+
 def _parse_upgrade_sim(out: str) -> list[dict]:
     """
     Parse `apt-get -s upgrade` output into items:
@@ -195,42 +229,74 @@ def get_apt_action_argv(action: str) -> list[str]:
     """
     action = (action or "").strip().lower()
 
-    mapping = {
-        "update": [
-            _resolve_trusted("env"), "DEBIAN_FRONTEND=noninteractive",
-            _resolve_trusted("apt-get"),
-            "-o", "Dpkg::Use-Pty=0",
-            "update",
-        ],
-        "upgrade": [
-            _resolve_trusted("env"), "DEBIAN_FRONTEND=noninteractive",
-            _resolve_trusted("apt-get"),
-            "-o", "Dpkg::Use-Pty=0",
-            "-o", "Dpkg::Progress-Fancy=1",
-            "-y", "upgrade",
-        ],
-        "dist-upgrade": [
-            _resolve_trusted("env"), "DEBIAN_FRONTEND=noninteractive",
-            _resolve_trusted("apt-get"),
-            "-o", "Dpkg::Use-Pty=0",
-            "-o", "Dpkg::Progress-Fancy=1",
-            "-y", "dist-upgrade",
-        ],
-        "full-upgrade": [
-            _resolve_trusted("env"), "DEBIAN_FRONTEND=noninteractive",
-            _resolve_trusted("apt-get"),
-            "-o", "Dpkg::Use-Pty=0",
-            "-o", "Dpkg::Progress-Fancy=1",
-            "-y", "dist-upgrade",
-        ],
-        "autoremove": [
-            _resolve_trusted("env"), "DEBIAN_FRONTEND=noninteractive",
-            _resolve_trusted("apt-get"),
-            "-o", "Dpkg::Use-Pty=0",
-            "-o", "Dpkg::Progress-Fancy=1",
-            "-y", "autoremove",
-        ],
-    }
+    env_cmd = _resolve_trusted("env")
+    frontend_name, frontend_cmd = _preferred_action_frontend()
+
+    if frontend_name == "nala":
+        mapping = {
+            "update": [
+                env_cmd, "DEBIAN_FRONTEND=noninteractive",
+                frontend_cmd,
+                "update",
+            ],
+            "upgrade": [
+                env_cmd, "DEBIAN_FRONTEND=noninteractive",
+                frontend_cmd,
+                "-y", "upgrade",
+            ],
+            "dist-upgrade": [
+                env_cmd, "DEBIAN_FRONTEND=noninteractive",
+                frontend_cmd,
+                "-y", "full-upgrade",
+            ],
+            "full-upgrade": [
+                env_cmd, "DEBIAN_FRONTEND=noninteractive",
+                frontend_cmd,
+                "-y", "full-upgrade",
+            ],
+            "autoremove": [
+                env_cmd, "DEBIAN_FRONTEND=noninteractive",
+                frontend_cmd,
+                "-y", "autoremove",
+            ],
+        }
+    else:
+        mapping = {
+            "update": [
+                env_cmd, "DEBIAN_FRONTEND=noninteractive",
+                frontend_cmd,
+                "-o", "Dpkg::Use-Pty=0",
+                "update",
+            ],
+            "upgrade": [
+                env_cmd, "DEBIAN_FRONTEND=noninteractive",
+                frontend_cmd,
+                "-o", "Dpkg::Use-Pty=0",
+                "-o", "Dpkg::Progress-Fancy=1",
+                "-y", "upgrade",
+            ],
+            "dist-upgrade": [
+                env_cmd, "DEBIAN_FRONTEND=noninteractive",
+                frontend_cmd,
+                "-o", "Dpkg::Use-Pty=0",
+                "-o", "Dpkg::Progress-Fancy=1",
+                "-y", "dist-upgrade",
+            ],
+            "full-upgrade": [
+                env_cmd, "DEBIAN_FRONTEND=noninteractive",
+                frontend_cmd,
+                "-o", "Dpkg::Use-Pty=0",
+                "-o", "Dpkg::Progress-Fancy=1",
+                "-y", "dist-upgrade",
+            ],
+            "autoremove": [
+                env_cmd, "DEBIAN_FRONTEND=noninteractive",
+                frontend_cmd,
+                "-o", "Dpkg::Use-Pty=0",
+                "-o", "Dpkg::Progress-Fancy=1",
+                "-y", "autoremove",
+            ],
+        }
 
     if action not in mapping:
         raise ValueError(f"Unknown action: {action}")

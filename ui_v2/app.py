@@ -172,9 +172,18 @@ class MainWindow(QMainWindow):
     def closeEvent(self, event):
         from PySide6.QtCore import QThreadPool
 
+        should_accept = False
         try:
-            # 1) Stop timers first
             pages = getattr(self, "pages", {}) or {}
+            updates_page = pages.get("updates")
+            if updates_page is not None:
+                try:
+                    if not updates_page.shutdown_running_action():
+                        return
+                except Exception:
+                    return
+
+            # 1) Stop timers first
             for page in pages.values():
                 t = getattr(page, "timer", None)
                 if t is not None:
@@ -196,9 +205,14 @@ class MainWindow(QMainWindow):
                     except Exception:
                         pass
 
+            should_accept = True
+
         finally:
             try:
-                event.accept()
+                if should_accept:
+                    event.accept()
+                else:
+                    event.ignore()
             except Exception:
                 pass
 
