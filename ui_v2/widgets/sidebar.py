@@ -8,7 +8,7 @@ SIMULATE_UPDATE_AVAILABLE = os.getenv("LAPTOP_HEALTH_DEV_UPDATE_AVAILABLE", "").
 
 from PySide6.QtWidgets import QFrame, QVBoxLayout, QPushButton, QLabel, QStyle
 from ui_v2.services.devtools_state import get_sidebar_update_mode
-from ui_v2.version import APP_VERSION
+from ui_v2.version import APP_VERSION, APP_RELEASE_DATE
 from ui_v2.services.update_checker import check_for_updates
 
 
@@ -44,7 +44,7 @@ class Sidebar(QFrame):
         mk("power", "Power && Thermal", QStyle.SP_ComputerIcon)
         mk("network", "Network", QStyle.SP_DriveNetIcon)
         mk("storage", "Storage", QStyle.SP_DriveHDIcon)
-        mk("updates", "Updates", QStyle.SP_MessageBoxWarning)
+        mk("updates", "Updates", QStyle.SP_BrowserReload)
 
         if DEV_MODE:
 
@@ -66,8 +66,9 @@ class Sidebar(QFrame):
         footer_l.setContentsMargins(10, 8, 10, 8)
         footer_l.setSpacing(4)
 
-        self.version_label = QLabel(APP_VERSION)
+        self.version_label = QLabel(self._version_text())
         self.version_label.setAlignment(Qt.AlignLeft | Qt.AlignBottom)
+        self.version_label.setWordWrap(True)
         self.version_label.setStyleSheet(
             "color: rgba(191,219,254,0.72);"
             "font-size: 11px;"
@@ -114,12 +115,12 @@ class Sidebar(QFrame):
             self._release_url = "https://github.com/Heis1/laptop-health/releases"
             self.update_status_label.setText("Up to date")
             self.update_status_label.setStyleSheet(
-                "color: rgb(226,232,240);"
+                "color: rgb(220,252,231);"
                 "font-size: 11px;"
                 "padding: 2px 8px;"
                 "border-radius: 999px;"
-                "background: rgba(100,116,139,0.34);"
-                "border: 1px solid rgba(148,163,184,0.58);"
+                "background: rgba(34,197,94,0.26);"
+                "border: 1px solid rgba(74,222,128,0.62);"
             )
             return
 
@@ -157,13 +158,19 @@ class Sidebar(QFrame):
 
         self.update_status_label.setText("Up to date")
         self.update_status_label.setStyleSheet(
-            "color: rgb(226,232,240);"
+            "color: rgb(220,252,231);"
             "font-size: 11px;"
             "padding: 2px 8px;"
             "border-radius: 999px;"
-            "background: rgba(100,116,139,0.34);"
-            "border: 1px solid rgba(148,163,184,0.58);"
+            "background: rgba(34,197,94,0.26);"
+            "border: 1px solid rgba(74,222,128,0.62);"
         )
+
+    def _version_text(self) -> str:
+        release_date = (APP_RELEASE_DATE or "").strip()
+        if release_date:
+            return f"Version {APP_VERSION}\nReleased {release_date}"
+        return f"Version {APP_VERSION}"
 
     def _open_release(self, event):
         if self._release_url:

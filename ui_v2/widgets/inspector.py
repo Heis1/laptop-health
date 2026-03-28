@@ -16,7 +16,6 @@ from PySide6.QtWidgets import (
 )
 
 from ui_v2.widgets.cards import MetricCard
-from ui_v2.widgets.shadow import apply_card_shadow
 from ui_v2.widgets.cpu_details_card import CpuDetailsCard
 from ui_v2.widgets.disk_info_card import DiskInfoCard
 from ui_v2.services.wakeups import wakeups_hint_fast, wakeups_hint_deep
@@ -56,14 +55,13 @@ class Inspector(QFrame):
         # ----- Container -----
         self.container = QFrame()
         self.container.setObjectName("InspectorContainer")
-        apply_card_shadow(self.container)
 
         # Don’t eat leftover vertical space
         self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
         self.container.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
 
         container_layout = QVBoxLayout(self.container)
-        container_layout.setContentsMargins(16, 16, 16, 16)
+        container_layout.setContentsMargins(0, 16, 0, 16)
         container_layout.setSpacing(12)
 
         self.grid = QGridLayout()

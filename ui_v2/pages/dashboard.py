@@ -5,7 +5,7 @@ from collections import deque
 from PySide6.QtCore import QThreadPool, QTimer
 from PySide6.QtWidgets import QWidget, QVBoxLayout, QGridLayout, QSizePolicy
 
-from ui_v2.widgets.cards import MetricCard, UpdatesCard, WakeupsCard, apply_responsive_card_fonts
+from ui_v2.widgets.cards import MetricCard, UpdatesCard, apply_responsive_card_fonts
 from ui_v2.widgets.disk_usage_card import DiskUsageCard
 from ui_v2.widgets.network_card import NetworkCard
 from ui_v2.widgets.inspector import Inspector
@@ -49,6 +49,25 @@ def _fmt_cpu(temp_c: float | None, ghz: float | None) -> tuple[str, str, str]:
     return big, sub, accent
 
 
+def _fmt_ram(used_pct: float | None, used_gb: float | None, total_gb: float | None) -> tuple[str, str, str]:
+    if used_pct is None:
+        return "—", "—", "blue"
+
+    big = f"{used_pct:.0f}%"
+    if used_gb is None or total_gb is None:
+        sub = "RAM in use"
+    else:
+        free_gb = max(0.0, total_gb - used_gb)
+        sub = f"{used_gb:.1f} / {total_gb:.1f} GB used • {free_gb:.1f} GB free"
+
+    accent = "green"
+    if used_pct >= 90:
+        accent = "red"
+    elif used_pct >= 75:
+        accent = "orange"
+    return big, sub, accent
+
+
 class DashboardPage(QWidget):
     def __init__(self):
         super().__init__()
@@ -60,6 +79,7 @@ class DashboardPage(QWidget):
         # Sparkline histories (store 0..1 floats)
         self._cpu_hist = deque([0.0] * 30, maxlen=30)
         self._gpu_hist = deque([0.0] * 30, maxlen=30)
+        self._ram_hist = deque([0.0] * 30, maxlen=30)
 
         # GPU last-known values (avoid flicker / avoid overwriting with None)
         self._gpu_last_temp: float | None = None
@@ -67,8 +87,6 @@ class DashboardPage(QWidget):
         self._gpu_last_name: str | None = None
 
 
-        # Cache fast-owned bottom-row metrics so slow refresh can't reset them
-        self._last_wakeups = ("—", "—", "green")  # (big, sub, accent)
         self._last_net = (None, None)  # (down_mbps, latency_ms)
 
         # Cache fast metrics so slow refresh (None fields) can't zero the UI
@@ -79,7 +97,10 @@ class DashboardPage(QWidget):
         # cache slow metrics so fast refresh can't wipe them
         self._disk_home_used = None
         self._disk_home_free = None
+        self._disk_home_mount = None
+        self._disk_root_used = None
         self._disk_root_free = None
+        self._disk_target = "root"
 
         outer = QVBoxLayout(self)
         outer.setContentsMargins(0, 0, 0, 0)
@@ -105,10 +126,6 @@ class DashboardPage(QWidget):
         apply_responsive_card_fonts(self.gpu)
 
         self.disk = DiskUsageCard(0, "—")
-        try:
-            self.disk.title.setText("Disk Usage (Home)")
-        except Exception:
-            pass
 
         _fix_top_row_heights(self.cpu, self.gpu, self.disk, h=165)
         for w in (self.cpu, self.gpu):
@@ -121,7 +138,11 @@ class DashboardPage(QWidget):
         grid.addWidget(self.disk, 0, 2, 1, 2)
 
         # Second row
-        self.wakeups = WakeupsCard("green")
+        self.wakeups = MetricCard("RAM", "—", "—", "blue", spark_points=[0.0] * 24)
+        self.wakeups.big_lbl.setObjectName("CardHuge")
+        self.wakeups.big_lbl.setWordWrap(True)
+        self.wakeups.sub_lbl.setWordWrap(True)
+        apply_responsive_card_fonts(self.wakeups)
         self.updates = UpdatesCard("red")
         self.updates.details_requested.connect(self._go_updates)
         self.net = NetworkCard()
@@ -148,6 +169,10 @@ class DashboardPage(QWidget):
 
         outer.addLayout(grid)
         self.inspector = Inspector()
+        try:
+            self.inspector.disk.target_changed.connect(self._on_disk_target_changed)
+        except Exception:
+            pass
         outer.addWidget(self.inspector)
 
         # Refresh controller (debounce + busy state)
@@ -210,6 +235,10 @@ class DashboardPage(QWidget):
                     spark_owner.spark.setMaximumHeight(spark_h)
             except Exception:
                 pass
+
+    def _on_disk_target_changed(self, target: str, used_pct, free_gb, mount_label: str) -> None:
+        self._disk_target = str(target or "root")
+        self.disk.set_disk(used_pct, free_gb, target=self._disk_target, mount_label=mount_label)
 
     def _refresh_fast(self):
         # Fast metrics (non-blocking)
@@ -372,54 +401,47 @@ class DashboardPage(QWidget):
             self._disk_home_used = result.home_used_pct
         if result.home_free_gb is not None:
             self._disk_home_free = result.home_free_gb
+        if result.home_mount is not None:
+            self._disk_home_mount = result.home_mount
+        if result.root_used_pct is not None:
+            self._disk_root_used = result.root_used_pct
         if result.root_free_gb is not None:
             self._disk_root_free = result.root_free_gb
 
         home_used = self._disk_home_used
         home_free = self._disk_home_free
+        root_used = self._disk_root_used
         root_free = self._disk_root_free
 
-        disk_accent = "orange"
-        if root_free is not None:
-            if root_free < 5:
-                disk_accent = "red"
-            elif root_free < 8:
-                disk_accent = "orange"
-
-        try:
-            self.disk.setProperty("accent", disk_accent)
-            self.disk.style().unpolish(self.disk)
-            self.disk.style().polish(self.disk)
-            self.disk.update()
-        except Exception:
-            pass
-
-        if home_used is None:
-            self.disk.big.setText("—")
-            self.disk.bar.setValue(0)
+        if self._disk_target == "home":
+            self.disk.set_disk(
+                home_used,
+                home_free,
+                target="home",
+                mount_label=self._disk_home_mount or "Home",
+            )
         else:
-            self.disk.big.setText(f"{int(home_used)}% Used")
-            self.disk.bar.setValue(max(0, min(100, int(home_used))))
-
-        if home_free is None and root_free is None:
-            self.disk.sub.setText("—")
-        else:
-            hf = "—" if home_free is None else f"{home_free:.0f} GB Free"
-            rf = "—" if root_free is None else f"{root_free:.0f} GB Free"
-            self.disk.sub.setText(f"Home: {hf}   •   Root: {rf}")
-        # Wakeups + Network + Updates
-        # Fast loop owns wakeups/net; slow loop owns updates. Cache fast values so slow tick can't wipe them.
+            self.disk.set_disk(
+                root_used,
+                root_free,
+                target="root",
+                mount_label="Root",
+            )
+        # RAM + Network + Updates
         try:
-            wb = getattr(result, 'wakeups_big', None)
-            ws = getattr(result, 'wakeups_sub', None)
-            wa = getattr(result, 'wakeups_accent', None)
-            if wb is not None or ws is not None or wa is not None:
-                self._last_wakeups = (
-                    wb if wb is not None else self._last_wakeups[0],
-                    ws if ws is not None else self._last_wakeups[1],
-                    wa if wa is not None else self._last_wakeups[2],
-                )
-            self.wakeups.set_values(*self._last_wakeups)
+            ram_big, ram_sub, ram_accent = _fmt_ram(
+                getattr(result, "ram_used_pct", None),
+                getattr(result, "ram_used_gb", None),
+                getattr(result, "ram_total_gb", None),
+            )
+            self.wakeups.set_values(ram_big, ram_sub, ram_accent)
+            ram_pct = getattr(result, "ram_used_pct", None)
+            if isinstance(ram_pct, (int, float)):
+                self._ram_hist.append(_norm01(float(ram_pct), 35.0, 100.0))
+                try:
+                    self.wakeups.set_spark(list(self._ram_hist))
+                except Exception:
+                    pass
         except Exception:
             pass
 

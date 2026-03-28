@@ -115,7 +115,16 @@ def _qss_base() -> str:
         text-align: center;
     }}
 
+    QToolButton#Badge {{
+        text-align: center;
+    }}
+
     QPushButton#Badge:hover {{
+        background: rgba(96,165,250,0.22);
+        border: 1px solid rgba(96,165,250,0.34);
+    }}
+
+    QToolButton#Badge:hover {{
         background: rgba(96,165,250,0.22);
         border: 1px solid rgba(96,165,250,0.34);
     }}
@@ -133,9 +142,9 @@ def _qss_base() -> str:
     }}
 
     #InspectorContainer {{
-        background: rgba(255,255,255,0.03);
-        border: 1px solid rgba(255,255,255,0.08);
-        border-radius: 18px;
+        background: transparent;
+        border: none;
+        border-radius: 0px;
     }}
     
 """

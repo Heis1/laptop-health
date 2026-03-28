@@ -5,7 +5,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional
 
-from PySide6.QtCore import QThreadPool, QTimer, Qt, QEvent
+from PySide6.QtCore import QThreadPool, QTimer, Qt, QEvent, Signal
 from PySide6.QtWidgets import (
     QFrame,
     QGridLayout,
@@ -22,13 +22,19 @@ from ui_v2.widgets.cards import apply_responsive_card_fonts
 from ui_v2.widgets.sparkline import Sparkline
 
 
-def _accent_for_used(used_pct: int | None) -> str:
+def _accent_for_used(target: str, used_pct: int | None) -> str:
     if used_pct is None:
         return "purple"
     u = float(used_pct)
-    if u < 75:
-        return "green"
+    if target == "root":
+        if u < 75:
+            return "green"
+        if u < 88:
+            return "orange"
+        return "red"
     if u < 88:
+        return "green"
+    if u < 95:
         return "orange"
     return "red"
 
@@ -93,6 +99,7 @@ class _OverviewMount:
 
 
 class DiskInfoCard(QFrame):
+    target_changed = Signal(str, object, object, str)
     """
     Inspector tile: disk activity view with Root/Home toggle.
       - Big Read/Write MB/s + sparklines
@@ -279,10 +286,12 @@ class DiskInfoCard(QFrame):
 
         # Meta + accent
         self.meta.setText(_fmt_meta(m))
-        self.setProperty("accent", _accent_for_used(m.used_pct))
+        self.setProperty("accent", _accent_for_used(self._target, m.used_pct))
         self.style().unpolish(self)
         self.style().polish(self)
         self.update()
+        mount_label = "Home" if self._target == "home" else "Root"
+        self.target_changed.emit(self._target, m.used_pct, m.free_gb, mount_label)
 
     def update_overview(self, m) -> None:
         home_mount = getattr(m, "home_mount", None) or str(Path.home())

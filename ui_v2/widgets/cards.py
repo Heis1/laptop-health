@@ -27,6 +27,14 @@ _RESPONSIVE_TYPE_BASE = {
 }
 
 
+def _font_with_size(widget: QWidget, pt: float, *, bold: bool | None = None) -> QFont:
+    font = QFont(widget.font())
+    font.setPointSizeF(pt)
+    if bold is not None:
+        font.setBold(bold)
+    return font
+
+
 def apply_responsive_card_fonts(widget: QWidget, width: int | None = None) -> None:
     width = max(220, int(width if width is not None else widget.width() or widget.sizeHint().width() or 320))
     divisor = widget.property("_responsive_width_divisor")
@@ -34,22 +42,50 @@ def apply_responsive_card_fonts(widget: QWidget, width: int | None = None) -> No
         divisor = max(1.0, float(divisor))
     except Exception:
         divisor = 1.0
-    width = max(220, int(width / divisor))
-    if width >= 420:
-        scale = 1.0
-    elif width >= 340:
-        scale = 0.84 + ((width - 340) / 80.0) * 0.16
-    elif width >= 280:
-        scale = 0.72 + ((width - 280) / 60.0) * 0.12
-    else:
-        scale = 0.62 + ((width - 220) / 60.0) * 0.10
-    scale = max(0.62, min(1.0, scale))
+    value_width = max(220, int(width / divisor))
+
+    def _label_scale_for_width(w: int) -> float:
+        if w >= 420:
+            scale = 1.0
+        elif w >= 340:
+            scale = 0.84 + ((w - 340) / 80.0) * 0.16
+        elif w >= 280:
+            scale = 0.72 + ((w - 280) / 60.0) * 0.12
+        else:
+            scale = 0.62 + ((w - 220) / 60.0) * 0.10
+        return max(0.62, min(1.0, scale))
+
+    def _value_scale_for_width(w: int) -> float:
+        if w >= 420:
+            scale = 1.0
+        elif w >= 340:
+            scale = 0.78 + ((w - 340) / 80.0) * 0.22
+        elif w >= 280:
+            scale = 0.62 + ((w - 280) / 60.0) * 0.16
+        else:
+            scale = 0.50 + ((w - 220) / 60.0) * 0.12
+        return max(0.50, min(1.0, scale))
+
+    label_scale = _label_scale_for_width(width)
+    value_scale = _value_scale_for_width(value_width)
+
+    value_classes = {"CardHuge", "CardBig"}
+    label_classes = {"CardSub", "Badge"}
 
     for cls in (QLabel, QPushButton):
         for child in widget.findChildren(cls):
-            base = _RESPONSIVE_TYPE_BASE.get(child.objectName())
+            name = child.objectName()
+            base = _RESPONSIVE_TYPE_BASE.get(name)
             if base is None:
                 continue
+            if name in value_classes:
+                scale = value_scale
+            elif name == "CardTitle":
+                scale = 1.0
+            elif name in label_classes:
+                scale = label_scale
+            else:
+                scale = label_scale
             base_style = child.property("_responsive_base_style")
             if base_style is None:
                 base_style = child.styleSheet()
@@ -163,6 +199,8 @@ class MetricCard(QFrame):
         self.sub_lbl.setText(sub)
         if accent:
             self.setProperty("accent", accent)
+            if getattr(self, "spark", None) is not None and hasattr(self.spark, "set_accent"):
+                self.spark.set_accent(accent)
         self.style().unpolish(self)
         self.style().polish(self)
         self.update()
@@ -293,26 +331,17 @@ class UpdatesCard(QFrame):
 
         self.big = QLabel("—")
 
-
         f = QFont()
-
-
         f.setStyleHint(QFont.Monospace)
-
-
         f.setFixedPitch(True)
 
-
-        
-
         self.big.setFont(f)
-
         self.big.setStyleSheet("")
         self.big.setAlignment(Qt.AlignLeft | Qt.AlignTop)
         self.big.setObjectName("CardHuge")
         f = QFont()
         f.setBold(True)
-        f.setPointSize(34)  # big, uses the space
+        f.setPointSize(34)
         self.big.setFont(f)
         self.big.setStyleSheet("color: rgba(255,255,255,0.96);")
         self.body.addWidget(self.big, 0)
@@ -356,10 +385,7 @@ class UpdatesCard(QFrame):
         self.btn_details.setCursor(Qt.PointingHandCursor)
         self.btn_details.setSizePolicy(QSizePolicy.Maximum, QSizePolicy.Fixed)
 
-        # Icon: use a standard refresh/updates glyph
         self.btn_details.setIcon(self.style().standardIcon(QStyle.SP_BrowserReload))
-
-        # Make it match dashboard polish (avoid default button look)
         self.btn_details.setStyleSheet("""
             QPushButton {
                 color: rgba(255,255,255,0.92);
