@@ -7,14 +7,14 @@ Laptop Health provides a clean, modular interface for monitoring system performa
 ## Project Status
 
 Stable release branch: main  
-UI v2 development branch: feature/new-dashboard-ui  
 
-UI v2 introduces a redesigned dashboard architecture with modular services, live sparklines, improved updates handling, enhanced system insight cards, and sidebar version/update checking.
+The current version includes:
+- redesigned dashboard (UI v2)
+- modular service architecture
+- live sparklines and enhanced system metrics
+- integrated update checking and download support
 
-To preview UI v2:
-
-    git checkout feature/new-dashboard-ui
-    python ui_preview_v2.py
+---
 
 ## Features
 
@@ -28,25 +28,36 @@ To preview UI v2:
 - Clean, card-based UI layout
 - Sidebar version display
 - GitHub update checking
+- In-app update download support (.deb)
+
+---
 
 ## Installation (Debian / Ubuntu / Mint)
 
 Download the latest `.deb` from the Releases page.
 
-Or download it directly from the repo:
+Or download directly:
 
-    python3 download_latest_deb.py
+```bash
+python3 download_latest_deb.py
+```
 
-This saves the newest release asset in the current directory, preferring the `amd64` package by default.
+This will fetch the latest release asset (preferring `amd64`).
 
 Install using:
 
-    pkexec apt install ./laptop-health_0.4.0-9_amd64.deb
+```bash
+pkexec apt install ./laptop-health_1.0.2-1_amd64.deb
+```
 
 Or manually:
 
-    sudo dpkg -i laptop-health_0.4.0-9_amd64.deb
-    sudo apt -f install
+```bash
+sudo dpkg -i laptop-health_1.0.2-1_amd64.deb
+sudo apt -f install
+```
+
+---
 
 ## Runtime Dependencies
 
@@ -60,60 +71,80 @@ Laptop Health relies on the following system tools:
 
 Install them if needed:
 
-    sudo apt install lm-sensors powertop nvme-cli power-profiles-daemon network-manager
+```bash
+sudo apt install lm-sensors powertop nvme-cli power-profiles-daemon network-manager
+```
 
 Optional:
 
 - nvidia-smi (for NVIDIA GPUs)
 - speedtest or speedtest-cli
 
+---
+
 ## Running
 
 After installation:
 
-    laptop-health
+```bash
+laptop-health
+```
 
 Or from source:
 
-    python main.py
+```bash
+python main.py
+```
 
-For UI v2 preview:
-
-    python ui_preview_v2.py
+---
 
 ## Development
 
 Clone the repository:
 
-    git clone https://github.com/Heis1/laptop-health.git
-    cd laptop-health
+```bash
+git clone https://github.com/Heis1/laptop-health.git
+cd laptop-health
+```
 
 Create a virtual environment:
 
-    python3 -m venv .venv
-    source .venv/bin/activate
-    pip install -r requirements-build.txt
+```bash
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -r requirements-build.txt
+```
 
 Run:
 
-    python main.py
+```bash
+python main.py
+```
+
+---
 
 ## Packaging
 
 Build using PyInstaller:
 
-    pip install -r requirements-build.txt
-    pyinstaller --noconfirm --clean --name laptop-health main.py
+```bash
+pip install -r requirements-build.txt
+pyinstaller --noconfirm --clean --name laptop-health main.py
+```
 
 Debian packaging is handled manually using dpkg-deb.
+
+---
 
 ## Versioning
 
 Releases follow semantic versioning:
 
-    v1.x.y
+v1.x.y
 
 Binary installers are attached to GitHub Releases.
+
+---
 
 ## Disclaimer
 
