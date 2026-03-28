@@ -44,6 +44,7 @@ ICON_SRC="${ICON_SRC:-assets/laptop-health.png}"
 
 # Build venv dir
 BUILD_VENV="${BUILD_VENV:-build-venv}"
+BUILD_REQUIREMENTS="${BUILD_REQUIREMENTS:-requirements-build.txt}"
 
 # Dependencies for apt (Debian control file)
 DEPS="${DEPS:-lm-sensors, powertop, nvme-cli, power-profiles-daemon, network-manager}"
@@ -73,6 +74,7 @@ echo "[i] Icon:    ${ICON_SRC}"
 # ===== Checks =====
 [[ -f "${SPEC_FILE}" ]] || die "Spec file not found: ${SPEC_FILE}"
 [[ -f "${ICON_SRC}" ]] || die "Icon not found: ${ICON_SRC}"
+[[ -f "${BUILD_REQUIREMENTS}" ]] || die "Build requirements file not found: ${BUILD_REQUIREMENTS}"
 have dpkg-deb || die "dpkg-deb not found (install dpkg)"
 have python3 || die "python3 not found"
 have git || die "git not found"
@@ -97,7 +99,7 @@ fi
 python -c "import PySide6, psutil" >/dev/null 2>&1 || {
   echo "[i] Installing Python build deps into venv ..."
   pip install --upgrade pip
-  pip install pyinstaller PySide6 psutil
+  pip install --requirement "${BUILD_REQUIREMENTS}"
 }
 
 have pyinstaller || die "pyinstaller not available in venv (pip install pyinstaller)"
