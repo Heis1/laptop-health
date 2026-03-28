@@ -1,9 +1,13 @@
 from __future__ import annotations
 
 import os
+import webbrowser
+from PySide6.QtCore import Qt
 DEV_MODE = os.getenv("LAPTOP_HEALTH_DEV", "").strip().lower() in ("1","true","yes","on")
 
 from PySide6.QtWidgets import QFrame, QVBoxLayout, QPushButton, QLabel, QStyle
+from ui_v2.version import APP_VERSION
+from ui_v2.services.update_checker import check_for_updates
 
 
 class Sidebar(QFrame):
@@ -16,6 +20,7 @@ class Sidebar(QFrame):
         super().__init__()
         self.setObjectName("Sidebar")
         self.buttons: dict[str, QPushButton] = {}
+        self._release_url: str | None = None
 
         v = QVBoxLayout(self)
         v.setContentsMargins(16, 16, 16, 16)
@@ -48,3 +53,55 @@ class Sidebar(QFrame):
             self.buttons["devtools"] = dev_btn
 
         v.addStretch(1)
+
+        self.version_label = QLabel(APP_VERSION)
+        self.version_label.setAlignment(Qt.AlignLeft | Qt.AlignBottom)
+        self.version_label.setStyleSheet(
+            "color: rgba(255,255,255,0.50);"
+            "font-size: 11px;"
+            "padding: 2px 4px 0 4px;"
+        )
+        v.addWidget(self.version_label)
+
+        self.update_status_label = QLabel("")
+        self.update_status_label.setAlignment(Qt.AlignLeft | Qt.AlignBottom)
+        self.update_status_label.setCursor(Qt.PointingHandCursor)
+        self.update_status_label.setStyleSheet(
+            "color: rgba(255,255,255,0.0);"
+            "font-size: 11px;"
+            "padding: 0 4px 0 4px;"
+        )
+        self.update_status_label.mousePressEvent = self._open_release
+        v.addWidget(self.update_status_label)
+
+        self._check_updates()
+
+    def _check_updates(self):
+        result = check_for_updates(APP_VERSION)
+        if not result.ok:
+            self._release_url = None
+            self.update_status_label.clear()
+            return
+
+        self._release_url = result.release_url
+        if result.update_available and result.latest_version:
+            self.update_status_label.setText(f"⬤ Update available ({result.latest_version})")
+            self.update_status_label.setStyleSheet(
+                "color: rgba(251,146,60,0.96);"
+                "font-size: 11px;"
+                "padding: 0 4px 0 4px;"
+            )
+            return
+
+        self.update_status_label.setText("Up to date")
+        self.update_status_label.setStyleSheet(
+            "color: rgba(255,255,255,0.55);"
+            "font-size: 11px;"
+            "padding: 0 4px 0 4px;"
+        )
+
+    def _open_release(self, event):
+        if self._release_url:
+            webbrowser.open(self._release_url)
+        if event is not None:
+            event.accept()
