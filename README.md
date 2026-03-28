@@ -1,5 +1,10 @@
 # Laptop Health
 
+[![Latest Release](https://img.shields.io/github/v/release/Heis1/laptop-health?display_name=tag)](https://github.com/Heis1/laptop-health/releases)
+[![Release Downloads](https://img.shields.io/github/downloads/Heis1/laptop-health/total)](https://github.com/Heis1/laptop-health/releases)
+[![License](https://img.shields.io/github/license/Heis1/laptop-health)](https://github.com/Heis1/laptop-health/blob/main/LICENSE)
+[![Python](https://img.shields.io/badge/python-3.10%2B-blue)](https://www.python.org/)
+
 A modern Linux system health dashboard for laptops.
 
 Laptop Health provides a clean, modular interface for monitoring system performance, thermals, storage, network activity, and power state — built with PySide6 and designed for Linux Mint / Ubuntu environments.
