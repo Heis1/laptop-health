@@ -6,6 +6,7 @@ from urllib.parse import urlparse
 
 GITHUB_REPO = "Heis1/laptop-health"
 LATEST_RELEASE_API = f"https://api.github.com/repos/{GITHUB_REPO}/releases/latest"
+RELEASES_PAGE_URL = f"https://github.com/{GITHUB_REPO}/releases"
 EXPECTED_RELEASE_HOST = "github.com"
 EXPECTED_RELEASE_PATH_PREFIX = f"/{GITHUB_REPO}/releases/"
 
@@ -43,13 +44,16 @@ def check_for_updates(current_version: str) -> UpdateCheckResult:
     try:
         req = urllib.request.Request(
             LATEST_RELEASE_API,
-            headers={"User-Agent": "LaptopHealth"}
+            headers={
+                "User-Agent": "LaptopHealth",
+                "Accept": "application/vnd.github+json",
+            },
         )
         with urllib.request.urlopen(req, timeout=5) as r:
             data = json.loads(r.read().decode())
 
         latest = data.get("tag_name")
-        url = _validated_release_url(data.get("html_url"))
+        url = _validated_release_url(data.get("html_url")) or RELEASES_PAGE_URL
 
         if not latest:
             raise RuntimeError("Invalid release response")
