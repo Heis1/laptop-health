@@ -327,10 +327,15 @@ class MainWindow(QMainWindow):
 
             if res.update_available:
                 self.update_status.setText(f"Update available: {res.latest_version}")
-                release_url = res.release_url or RELEASES_PAGE_URL
+                release_url = res.deb_download_url or res.release_url or RELEASES_PAGE_URL
+                button_text = (
+                    "Download Latest .deb"
+                    if res.deb_download_url
+                    else "Open Releases Page"
+                )
                 self._set_update_button_action(
                     lambda: QDesktopServices.openUrl(QUrl(release_url)),
-                    "Open Releases Page",
+                    button_text,
                 )
             else:
                 self.update_status.setText("Status: Up to date")
