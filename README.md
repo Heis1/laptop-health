@@ -33,9 +33,15 @@ To preview UI v2:
 
 Download the latest `.deb` from the Releases page.
 
+Or download it directly from the repo:
+
+    python3 download_latest_deb.py
+
+This saves the newest release asset in the current directory, preferring the `amd64` package by default.
+
 Install using:
 
-    sudo apt install ./laptop-health_0.4.0-9_amd64.deb
+    pkexec apt install ./laptop-health_0.4.0-9_amd64.deb
 
 Or manually:
 
