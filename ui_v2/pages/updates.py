@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import os
+import re
+import signal
 import subprocess
 
 from PySide6.QtCore import Qt, QThread, Signal
@@ -7,12 +10,13 @@ from PySide6.QtGui import QFont, QColor
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QTableWidget,
     QTableWidgetItem, QHeaderView, QTextEdit, QFrame, QStyle, QDialog,
-    QGraphicsOpacityEffect,
+    QGraphicsOpacityEffect, QMessageBox,
 )
 from ui_v2.qtworker import QtWorker
 from ui_v2.services.updates import (
     UPDATE_ACCENT_RGBA,
     classify_update_status,
+    get_apt_action_description,
     get_update_count,
     reboot_required,
     list_upgradable,
@@ -41,6 +45,42 @@ QPushButton#ActionBtn:disabled {
     color: rgba(255,255,255,0.35);
     background: rgba(255,255,255,0.04);
     border: 1px solid rgba(255,255,255,0.08);
+}
+QPushButton#ActionBtn[accent="green"][status="idle"] {
+    background: rgba(52,211,153,0.10);
+    border: 1px solid rgba(52,211,153,0.28);
+}
+QPushButton#ActionBtn[accent="blue"][status="idle"] {
+    background: rgba(96,165,250,0.10);
+    border: 1px solid rgba(96,165,250,0.28);
+}
+QPushButton#ActionBtn[accent="orange"][status="idle"] {
+    background: rgba(251,146,60,0.10);
+    border: 1px solid rgba(251,146,60,0.30);
+}
+QPushButton#ActionBtn[accent="red"][status="idle"] {
+    background: rgba(248,113,113,0.10);
+    border: 1px solid rgba(248,113,113,0.28);
+}
+QPushButton#ActionBtn[status="running"] {
+    background: rgba(255,255,255,0.18);
+    border: 1px solid rgba(255,255,255,0.34);
+    color: rgba(255,255,255,0.98);
+}
+QPushButton#ActionBtn[status="success"] {
+    background: rgba(52,211,153,0.20);
+    border: 1px solid rgba(52,211,153,0.48);
+    color: rgba(255,255,255,0.98);
+}
+QPushButton#ActionBtn[status="error"] {
+    background: rgba(248,113,113,0.20);
+    border: 1px solid rgba(248,113,113,0.46);
+    color: rgba(255,255,255,0.98);
+}
+QPushButton#ActionBtn[status="attention"] {
+    background: rgba(251,146,60,0.18);
+    border: 1px solid rgba(251,146,60,0.42);
+    color: rgba(255,255,255,0.98);
 }
 
 QTextEdit#UpdatesLog {
@@ -120,10 +160,22 @@ QHeaderView::section {
 }
 """
 
+_APT_FETCH_RE = re.compile(r"^(?:Get|Hit|Ign):\d+\s+\S+\s+(.+?)(?:\s+\[[^\]]+\])?$")
+_PKG_STAGE_PATTERNS = (
+    (re.compile(r"^Preparing to unpack .*?/([^/\s_]+)[^/\s]*\.deb"), "Preparing"),
+    (re.compile(r"^Unpacking\s+([^\s:(]+)"), "Unpacking"),
+    (re.compile(r"^Setting up\s+([^\s:(]+)"), "Setting up"),
+    (re.compile(r"^Removing\s+([^\s:(]+)"), "Removing"),
+    (re.compile(r"^Configuring\s+([^\s:(]+)"), "Configuring"),
+)
+_PERCENT_RE = re.compile(r"(\d{1,3})%")
 
-def _mk_btn(text: str, icon, tip: str) -> QPushButton:
+
+def _mk_btn(text: str, icon, tip: str, accent: str) -> QPushButton:
     b = QPushButton(text)
     b.setObjectName("ActionBtn")
+    b.setProperty("accent", accent)
+    b.setProperty("status", "idle")
     b.setIcon(icon)
     b.setCursor(Qt.PointingHandCursor)
     b.setToolTip(tip)
@@ -138,6 +190,40 @@ class AptActionRunner(QThread):
         super().__init__(parent)
         self.action = action
         self._proc: subprocess.Popen[str] | None = None
+
+    def is_active(self) -> bool:
+        proc = self._proc
+        return bool(self.isRunning() or (proc is not None and proc.poll() is None))
+
+    def _signal_proc(self, sig: int) -> bool:
+        proc = self._proc
+        if proc is None or proc.poll() is not None:
+            return True
+        try:
+            if os.name == "posix":
+                os.killpg(proc.pid, sig)
+            else:
+                proc.send_signal(sig)
+            return True
+        except ProcessLookupError:
+            return True
+        except Exception:
+            return False
+
+    def request_stop(self, timeout_ms: int = 2500) -> bool:
+        if not self.is_active():
+            return True
+        self._signal_proc(signal.SIGINT)
+        return self.wait(max(0, timeout_ms))
+
+    def force_stop(self, timeout_ms: int = 1500) -> bool:
+        if not self.is_active():
+            return True
+        self._signal_proc(signal.SIGTERM)
+        if self.wait(max(0, timeout_ms)):
+            return True
+        self._signal_proc(signal.SIGKILL)
+        return self.wait(max(0, timeout_ms))
 
     def run(self) -> None:
         try:
@@ -163,6 +249,7 @@ class AptActionRunner(QThread):
                 text=True,
                 bufsize=1,
                 universal_newlines=True,
+                start_new_session=True,
             )
 
             assert self._proc.stdout is not None
@@ -324,6 +411,11 @@ class UpdatesPage(QWidget):
     def __init__(self):
         super().__init__()
         self.setStyleSheet(_PAGE_QSS)
+        self._refresh_failed = False
+        self._active_action: str | None = None
+        self._activity_rows: dict[str, int] = {}
+        self._activity_order: list[str] = []
+        self._last_activity_package: str | None = None
 
         root = QVBoxLayout(self)
         root.setContentsMargins(18, 18, 16, 18)
@@ -335,7 +427,7 @@ class UpdatesPage(QWidget):
         top.addWidget(title)
         top.addStretch(1)
 
-        self.btn_refresh = _mk_btn("Refresh", self.style().standardIcon(QStyle.SP_BrowserReload), "Refresh pending updates list")
+        self.btn_refresh = _mk_btn("Refresh", self.style().standardIcon(QStyle.SP_BrowserReload), "Refresh pending updates list", "blue")
         self.btn_refresh.clicked.connect(self.refresh)
         top.addWidget(self.btn_refresh)
         root.addLayout(top)
@@ -363,23 +455,24 @@ class UpdatesPage(QWidget):
         tb.setContentsMargins(12, 10, 12, 10)
         tb.setSpacing(10)
 
-        self.btn_update_lists = _mk_btn("Update lists", self.style().standardIcon(QStyle.SP_BrowserReload), "Runs: apt-get update")
+        self.btn_update_lists = _mk_btn("Update lists", self.style().standardIcon(QStyle.SP_BrowserReload), self._command_tip("update"), "green")
         self.btn_update_lists.clicked.connect(lambda: self._confirm_and_run("update"))
         tb.addWidget(self.btn_update_lists)
 
-        self.btn_upgrade = _mk_btn("Upgrade", self.style().standardIcon(QStyle.SP_ArrowUp), "Runs: apt-get -y upgrade")
+        self.btn_upgrade = _mk_btn("Upgrade", self.style().standardIcon(QStyle.SP_ArrowUp), self._command_tip("upgrade"), "blue")
         self.btn_upgrade.clicked.connect(lambda: self._confirm_and_run("upgrade"))
         tb.addWidget(self.btn_upgrade)
 
         self.btn_full = _mk_btn(
             "Full upgrade",
             self.style().standardIcon(QStyle.SP_DialogApplyButton),
-            "Runs: apt-get -y dist-upgrade (may remove/replace packages)",
+            f"Runs: {get_apt_action_description('full-upgrade')} (may remove/replace packages)",
+            "orange",
         )
         self.btn_full.clicked.connect(lambda: self._confirm_and_run("full-upgrade"))
         tb.addWidget(self.btn_full)
 
-        self.btn_autoremove = _mk_btn("Autoremove", self.style().standardIcon(QStyle.SP_TrashIcon), "Runs: apt-get -y autoremove")
+        self.btn_autoremove = _mk_btn("Autoremove", self.style().standardIcon(QStyle.SP_TrashIcon), self._command_tip("autoremove"), "red")
         self.btn_autoremove.clicked.connect(lambda: self._confirm_and_run("autoremove"))
         tb.addWidget(self.btn_autoremove)
 
@@ -418,6 +511,31 @@ class UpdatesPage(QWidget):
 
         root.addWidget(self.table, 1)
 
+        self.activity = QTableWidget(0, 3)
+        self.activity.setObjectName("UpdatesTable")
+        self.activity.setStyleSheet(_TABLE_QSS)
+        self.activity.setHorizontalHeaderLabels(["Package", "Stage", "Progress"])
+        self.activity.horizontalHeader().setSectionResizeMode(0, QHeaderView.Stretch)
+        self.activity.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeToContents)
+        self.activity.horizontalHeader().setSectionResizeMode(2, QHeaderView.ResizeToContents)
+        self.activity.verticalHeader().setVisible(False)
+        self.activity.setSelectionMode(QTableWidget.NoSelection)
+        self.activity.setEditTriggers(QTableWidget.NoEditTriggers)
+        self.activity.setShowGrid(False)
+        self.activity.setAlternatingRowColors(False)
+        self.activity.setFont(base_font)
+        self.activity.setFocusPolicy(Qt.NoFocus)
+        self.activity.setMinimumHeight(130)
+
+        activity_hdr = self.activity.horizontalHeader()
+        activity_hdr.setStyleSheet(_HDR_QSS)
+        activity_hdr.setHighlightSections(False)
+        activity_hdr.setDefaultAlignment(Qt.AlignLeft | Qt.AlignVCenter)
+        activity_hdr.setMinimumHeight(34)
+        activity_hdr.setFont(hdr_font)
+
+        root.addWidget(self.activity)
+
         self.log = QTextEdit()
         self.log.setObjectName("UpdatesLog")
         self.log.setReadOnly(True)
@@ -430,6 +548,10 @@ class UpdatesPage(QWidget):
         self._busy_fx_log = QGraphicsOpacityEffect(self.log)
         self._busy_fx_log.setOpacity(1.0)
         self.log.setGraphicsEffect(self._busy_fx_log)
+
+        self._busy_fx_activity = QGraphicsOpacityEffect(self.activity)
+        self._busy_fx_activity.setOpacity(1.0)
+        self.activity.setGraphicsEffect(self._busy_fx_activity)
 
         mono = QFont()
         mono.setFamilies(["JetBrains Mono", "Fira Code", "Monospace"])
@@ -448,6 +570,131 @@ class UpdatesPage(QWidget):
         self._busy_anim.timeout.connect(self._tick_busy_badge)
 
         self.refresh()
+
+    def _command_tip(self, action: str) -> str:
+        return f"Runs: {get_apt_action_description(action)}"
+
+    def _button_map(self) -> dict[str, QPushButton]:
+        return {
+            "refresh": self.btn_refresh,
+            "update": self.btn_update_lists,
+            "upgrade": self.btn_upgrade,
+            "full-upgrade": self.btn_full,
+            "autoremove": self.btn_autoremove,
+        }
+
+    def _set_button_status(self, key: str, status: str) -> None:
+        btn = self._button_map().get(key)
+        if btn is None:
+            return
+        btn.setProperty("status", status)
+        btn.style().unpolish(btn)
+        btn.style().polish(btn)
+        btn.update()
+
+    def _clear_activity(self) -> None:
+        self.activity.setRowCount(0)
+        self._activity_rows.clear()
+        self._activity_order.clear()
+        self._last_activity_package = None
+
+    def _activity_row(self, package: str) -> int:
+        row = self._activity_rows.get(package)
+        if row is not None:
+            return row
+        row = self.activity.rowCount()
+        self.activity.insertRow(row)
+        self._activity_rows[package] = row
+        self._activity_order.append(package)
+
+        pkg_item = QTableWidgetItem(package)
+        stage_item = QTableWidgetItem("Queued")
+        pct_item = QTableWidgetItem("0%")
+        pct_item.setTextAlignment(Qt.AlignRight | Qt.AlignVCenter)
+
+        self.activity.setItem(row, 0, pkg_item)
+        self.activity.setItem(row, 1, stage_item)
+        self.activity.setItem(row, 2, pct_item)
+        return row
+
+    def _update_activity(self, package: str, stage: str, percent: int | None = None) -> None:
+        if not package:
+            return
+        row = self._activity_row(package)
+        stage_item = self.activity.item(row, 1)
+        pct_item = self.activity.item(row, 2)
+        if stage_item is not None:
+            stage_item.setText(stage)
+        if pct_item is not None:
+            if percent is None:
+                if stage.lower() in {"downloaded", "setting up", "installed", "configured", "complete"}:
+                    pct_item.setText("100%")
+                elif "download" in stage.lower():
+                    pct_item.setText("...")
+            else:
+                pct_item.setText(f"{max(0, min(100, int(percent)))}%")
+        self._last_activity_package = package
+
+    def _mark_all_activity_complete(self, success: bool) -> None:
+        final_stage = "Complete" if success else "Interrupted"
+        final_pct = "100%" if success else "!"
+        for package in self._activity_order:
+            row = self._activity_rows.get(package)
+            if row is None:
+                continue
+            stage_item = self.activity.item(row, 1)
+            pct_item = self.activity.item(row, 2)
+            if stage_item is not None:
+                stage_item.setText(final_stage)
+            if pct_item is not None:
+                pct_item.setText(final_pct)
+
+    def _parse_fetch_package(self, line: str) -> str | None:
+        match = _APT_FETCH_RE.match(line)
+        if not match:
+            return None
+        tail = match.group(1).strip()
+        if not tail:
+            return None
+        parts = tail.split()
+        if not parts:
+            return None
+        name = parts[0].strip()
+        if "/" in name or name.endswith(":"):
+            return None
+        return name
+
+    def _parse_stage_package(self, line: str) -> tuple[str, str] | None:
+        for pattern, stage in _PKG_STAGE_PATTERNS:
+            match = pattern.search(line)
+            if match:
+                return match.group(1), stage
+        return None
+
+    def _handle_action_output(self, line: str) -> None:
+        self._append_log(line)
+
+        package = self._parse_fetch_package(line)
+        if package:
+            percent_match = _PERCENT_RE.search(line)
+            percent = int(percent_match.group(1)) if percent_match else None
+            self._update_activity(package, "Downloading", percent)
+            return
+
+        staged = self._parse_stage_package(line)
+        if staged:
+            package, stage = staged
+            percent = 100 if stage in {"Setting up", "Configuring"} else None
+            self._update_activity(package, stage, percent)
+            return
+
+        percent_match = _PERCENT_RE.search(line)
+        if percent_match and self._last_activity_package:
+            self._update_activity(
+                self._last_activity_package,
+                "Downloading",
+                int(percent_match.group(1)),
+            )
 
     def _set_badge(self, text: str, accent: str):
         self.badge.setText(text)
@@ -572,6 +819,7 @@ class UpdatesPage(QWidget):
         try:
             self._busy_fx_table.setOpacity(0.55 if busy else 1.0)
             self._busy_fx_log.setOpacity(0.55 if busy else 1.0)
+            self._busy_fx_activity.setOpacity(0.55 if busy else 1.0)
         except Exception:
             pass
 
@@ -579,6 +827,7 @@ class UpdatesPage(QWidget):
             self._append_log(msg)
 
         if busy:
+            self._set_button_status("refresh", "running")
             self._busy_anim_tick = 0
             self._set_badge("REFRESHING", "blue")
             try:
@@ -586,12 +835,14 @@ class UpdatesPage(QWidget):
             except Exception:
                 pass
         else:
+            self._set_button_status("refresh", "error" if self._refresh_failed else "success")
             try:
                 self._busy_anim.stop()
             except Exception:
                 pass
 
     def _set_running(self, action: str) -> None:
+        self._active_action = action
         for b in (
             self.btn_refresh,
             self.btn_update_lists,
@@ -606,9 +857,55 @@ class UpdatesPage(QWidget):
         try:
             self._busy_fx_table.setOpacity(0.55)
             self._busy_fx_log.setOpacity(1.0)
+            self._busy_fx_activity.setOpacity(1.0)
         except Exception:
             pass
+        self._clear_activity()
+        self._set_button_status(action, "running")
         self._set_badge(f"RUNNING {action.upper()}", "orange")
+
+    def _is_action_running(self) -> bool:
+        runner = self._action_runner
+        return bool(runner and runner.is_active())
+
+    def shutdown_running_action(self) -> bool:
+        runner = self._action_runner
+        if not runner or not runner.is_active():
+            return True
+
+        self._append_log("\n== Shutdown requested: attempting graceful stop ==")
+        self._set_badge("STOPPING", "orange")
+        if self._active_action:
+            self._set_button_status(self._active_action, "attention")
+
+        if runner.request_stop(2500):
+            self._append_log("== Update action stopped cleanly ==")
+            return True
+
+        dlg = ConfirmDialog(
+            self,
+            "Update Still Running",
+            "The package operation did not stop cleanly.\n\n"
+            "Force shutdown now? This will terminate the running package command.",
+            accent="red",
+        )
+        if dlg.exec() != QDialog.Accepted:
+            self._append_log("== Shutdown cancelled: update action still running ==")
+            return False
+
+        self._append_log("== Forcing update action shutdown ==")
+        if runner.force_stop(2000):
+            self._append_log("== Update action terminated ==")
+            return True
+
+        self._append_log("== Failed to terminate update action ==")
+        QMessageBox.warning(
+            self,
+            "Shutdown blocked",
+            "The update process is still running and could not be terminated.\n"
+            "Laptop Health will remain open.",
+        )
+        return False
 
     def _tick_busy_badge(self) -> None:
         self._busy_anim_tick = (self._busy_anim_tick + 1) % 4
@@ -620,6 +917,7 @@ class UpdatesPage(QWidget):
             self.log.append(text)
 
     def refresh(self):
+        self._refresh_failed = False
         self._set_busy(True, "\n== Refreshing updates list… ==")
 
         def job():
@@ -632,7 +930,7 @@ class UpdatesPage(QWidget):
 
         w = QtWorker(job)
         w.signals.result.connect(self._on_refresh)
-        w.signals.error.connect(lambda e: self._append_log(f"[refresh error] {e}"))
+        w.signals.error.connect(self._on_refresh_error)
         w.signals.finished.connect(lambda: self._set_busy(False))
         self._workers.append(w)
         self._start_worker(w)
@@ -644,12 +942,17 @@ class UpdatesPage(QWidget):
         self._set_status(total, sec, reb, len(kept_set), len(held_set))
         self._fill_table(items, kept_set, held_set)
 
+    def _on_refresh_error(self, error):
+        self._refresh_failed = True
+        self._append_log(f"[refresh error] {error}")
+
     def _confirm_and_run(self, action: str):
+        cmd = get_apt_action_description(action)
         messages = {
-            "update": "This will update package lists (apt-get update).\n\nAdministrator privileges required.\nYou may be prompted for your password.",
-            "upgrade": "This will install available upgrades (apt-get -y upgrade).\n\nAdministrator privileges required.\nYou may be prompted for your password.",
-            "full-upgrade": "This will perform a full upgrade (apt-get -y dist-upgrade).\nIt may remove or replace packages.\n\nAdministrator privileges required.\nYou may be prompted for your password.",
-            "autoremove": "This will remove unused packages (apt-get -y autoremove).\n\nAdministrator privileges required.\nYou may be prompted for your password.",
+            "update": f"This will update package lists ({cmd}).\n\nAdministrator privileges required.\nYou may be prompted for your password.",
+            "upgrade": f"This will install available upgrades ({cmd}).\n\nAdministrator privileges required.\nYou may be prompted for your password.",
+            "full-upgrade": f"This will perform a full upgrade ({cmd}).\nIt may remove or replace packages.\n\nAdministrator privileges required.\nYou may be prompted for your password.",
+            "autoremove": f"This will remove unused packages ({cmd}).\n\nAdministrator privileges required.\nYou may be prompted for your password.",
         }
 
         accent = "red" if action == "full-upgrade" else "orange"
@@ -661,24 +964,31 @@ class UpdatesPage(QWidget):
         self._set_running(action)
 
         self._action_runner = AptActionRunner(action, self)
-        self._action_runner.line.connect(self._append_log)
+        self._action_runner.line.connect(self._handle_action_output)
         self._action_runner.done.connect(self._on_stream_action_done)
         self._action_runner.start()
 
     def _on_stream_action_done(self, rc: int):
         self._append_log(f"== Exit code: {rc} ==")
+        self._action_runner = None
+        self._mark_all_activity_complete(rc == 0)
 
         for b in (self.btn_update_lists, self.btn_upgrade, self.btn_full, self.btn_autoremove, self.btn_refresh):
             b.setEnabled(True)
 
         if rc == 0:
+            if self._active_action:
+                self._set_button_status(self._active_action, "success")
             self._set_badge("COMPLETE", "green")
         else:
+            if self._active_action:
+                self._set_button_status(self._active_action, "error")
             self._set_badge("FAILED", "red")
 
         try:
             self._busy_fx_table.setOpacity(1.0)
             self._busy_fx_log.setOpacity(1.0)
+            self._busy_fx_activity.setOpacity(1.0)
         except Exception:
             pass
 
