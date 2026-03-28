@@ -47,20 +47,29 @@ QPushButton#ActionBtn:disabled {
     border: 1px solid rgba(255,255,255,0.08);
 }
 QPushButton#ActionBtn[accent="green"][status="idle"] {
-    background: rgba(52,211,153,0.10);
-    border: 1px solid rgba(52,211,153,0.28);
+    color: rgba(220,255,238,0.98);
+    background: rgba(52,211,153,0.20);
+    border: 1px solid rgba(52,211,153,0.42);
 }
 QPushButton#ActionBtn[accent="blue"][status="idle"] {
-    background: rgba(96,165,250,0.10);
-    border: 1px solid rgba(96,165,250,0.28);
+    color: rgba(230,242,255,0.98);
+    background: rgba(96,165,250,0.18);
+    border: 1px solid rgba(96,165,250,0.42);
 }
 QPushButton#ActionBtn[accent="orange"][status="idle"] {
-    background: rgba(251,146,60,0.10);
-    border: 1px solid rgba(251,146,60,0.30);
+    color: rgba(255,241,224,0.98);
+    background: rgba(251,146,60,0.20);
+    border: 1px solid rgba(251,146,60,0.44);
 }
 QPushButton#ActionBtn[accent="red"][status="idle"] {
-    background: rgba(248,113,113,0.10);
-    border: 1px solid rgba(248,113,113,0.28);
+    color: rgba(255,234,234,0.98);
+    background: rgba(248,113,113,0.18);
+    border: 1px solid rgba(248,113,113,0.42);
+}
+QPushButton#ActionBtn[accent="slate"][status="idle"] {
+    color: rgba(232,240,250,0.96);
+    background: rgba(100,116,139,0.22);
+    border: 1px solid rgba(148,163,184,0.42);
 }
 QPushButton#ActionBtn[status="running"] {
     background: rgba(255,255,255,0.18);
@@ -169,6 +178,29 @@ _PKG_STAGE_PATTERNS = (
     (re.compile(r"^Configuring\s+([^\s:(]+)"), "Configuring"),
 )
 _PERCENT_RE = re.compile(r"(\d{1,3})%")
+
+_METRIC_STYLES = {
+    "neutral": (
+        "rgba(255,255,255,0.78)",
+        "rgba(255,255,255,0.04)",
+        "rgba(255,255,255,0.10)",
+    ),
+    "warning": (
+        "rgba(255,214,170,0.98)",
+        "rgba(251,146,60,0.14)",
+        "rgba(251,146,60,0.30)",
+    ),
+    "danger": (
+        "rgba(255,195,195,0.98)",
+        "rgba(248,113,113,0.14)",
+        "rgba(248,113,113,0.34)",
+    ),
+    "success": (
+        "rgba(194,255,223,0.98)",
+        "rgba(52,211,153,0.12)",
+        "rgba(52,211,153,0.28)",
+    ),
+}
 
 
 def _mk_btn(text: str, icon, tip: str, accent: str) -> QPushButton:
@@ -472,7 +504,7 @@ class UpdatesPage(QWidget):
         self.btn_full.clicked.connect(lambda: self._confirm_and_run("full-upgrade"))
         tb.addWidget(self.btn_full)
 
-        self.btn_autoremove = _mk_btn("Autoremove", self.style().standardIcon(QStyle.SP_TrashIcon), self._command_tip("autoremove"), "red")
+        self.btn_autoremove = _mk_btn("Autoremove", self.style().standardIcon(QStyle.SP_TrashIcon), self._command_tip("autoremove"), "slate")
         self.btn_autoremove.clicked.connect(lambda: self._confirm_and_run("autoremove"))
         tb.addWidget(self.btn_autoremove)
 
@@ -709,23 +741,36 @@ class UpdatesPage(QWidget):
             "background: rgba(255,255,255,0.06);"
         )
 
+    def _set_metric(self, label: QLabel, title: str, value: str, state: str) -> None:
+        fg, bg, border = _METRIC_STYLES.get(state, _METRIC_STYLES["neutral"])
+        label.setText(f"{title}: {value}")
+        label.setStyleSheet(
+            f"color: {fg};"
+            f"background: {bg};"
+            f"border: 1px solid {border};"
+            "border-radius: 999px;"
+            "padding: 4px 10px;"
+            "font-size: 12px;"
+            "font-weight: 700;"
+        )
+
     def _set_status(self, total: int | None, sec: int | None, reb: bool, kept: int = 0, held: int = 0):
         if total is None:
-            self.lbl_total.setText("Total: —")
-            self.lbl_sec.setText("Security: —")
-            self.lbl_reboot.setText("Reboot: —")
-            self.lbl_kept.setText("Kept back: —")
-            self.lbl_held.setText("Held: —")
+            self._set_metric(self.lbl_total, "Total", "—", "neutral")
+            self._set_metric(self.lbl_sec, "Security", "—", "neutral")
+            self._set_metric(self.lbl_reboot, "Reboot", "—", "neutral")
+            self._set_metric(self.lbl_kept, "Kept back", "—", "neutral")
+            self._set_metric(self.lbl_held, "Held", "—", "neutral")
             accent = "red"
             self._set_badge("UNKNOWN", accent)
         else:
             total = int(total)
             sec = 0 if sec is None else int(sec)
-            self.lbl_total.setText(f"Total: {total}")
-            self.lbl_sec.setText(f"Security: {sec}")
-            self.lbl_reboot.setText("Reboot: Yes" if reb else "Reboot: No")
-            self.lbl_kept.setText(f"Kept back: {kept}")
-            self.lbl_held.setText(f"Held: {held}")
+            self._set_metric(self.lbl_total, "Total", str(total), "warning" if total > 0 else "success")
+            self._set_metric(self.lbl_sec, "Security", str(sec), "danger" if sec > 0 else "success")
+            self._set_metric(self.lbl_reboot, "Reboot", "Yes" if reb else "No", "danger" if reb else "success")
+            self._set_metric(self.lbl_kept, "Kept back", str(kept), "warning" if kept > 0 else "success")
+            self._set_metric(self.lbl_held, "Held", str(held), "danger" if held > 0 else "success")
 
             badge, accent = classify_update_status(total, sec, reb, kept, held)
             self._set_badge(badge, accent)
