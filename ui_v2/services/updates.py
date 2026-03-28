@@ -6,6 +6,8 @@ import subprocess
 from dataclasses import dataclass
 from typing import Tuple
 
+import system
+
 
 UPDATE_ACCENT_RGBA = {
     "green": "rgba(120, 255, 190, 0.95)",
@@ -51,14 +53,35 @@ def reboot_required() -> bool:
 
 
 def _run(cmd: list[str], timeout: int = 15) -> tuple[int, str]:
-    try:
-        p = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
-        out = ((p.stdout or "") + ("\n" if p.stdout and p.stderr else "") + (p.stderr or "")).strip()
-        return int(p.returncode), out
-    except subprocess.TimeoutExpired:
-        return 124, "Command timed out."
-    except Exception as e:
-        return 1, str(e)
+    rc, out, err = system.run_cmd(cmd, timeout_s=timeout)
+    merged = ((out or "") + ("\n" if out and err else "") + (err or "")).strip()
+    return int(rc), merged
+
+
+def _resolve_trusted(cmd: str) -> str:
+    path = shutil.which(cmd)
+    if not path:
+        raise FileNotFoundError(f"{cmd} not found")
+    real = os.path.realpath(path)
+    trusted_prefixes = (
+        "/usr/bin/",
+        "/bin/",
+        "/usr/sbin/",
+        "/sbin/",
+        "/usr/local/bin/",
+        "/usr/local/sbin/",
+    )
+    if not any(real.startswith(prefix) for prefix in trusted_prefixes):
+        raise PermissionError(f"Untrusted executable path for {cmd}: {real}")
+    return real
+
+
+def _apt_simulation_cmd() -> list[str]:
+    return [_resolve_trusted("apt-get"), "-s", "upgrade"]
+
+
+def _apt_mark_showhold_cmd() -> list[str]:
+    return [_resolve_trusted("apt-mark"), "showhold"]
 
 
 def _parse_upgrade_sim(out: str) -> list[dict]:
@@ -98,7 +121,7 @@ def _parse_upgrade_sim(out: str) -> list[dict]:
 
 
 def list_upgradable() -> list[dict]:
-    rc, out = _run(["bash", "-lc", "apt-get -s upgrade 2>/dev/null"], timeout=25)
+    rc, out = _run(_apt_simulation_cmd(), timeout=25)
     if rc != 0 or not out:
         return []
     return _parse_upgrade_sim(out)
@@ -107,7 +130,7 @@ def list_upgradable() -> list[dict]:
 def get_update_count() -> Tuple[int | None, int | None]:
     items = list_upgradable()
     if not items:
-        rc, _ = _run(["bash", "-lc", "apt-get -s upgrade 2>/dev/null"], timeout=10)
+        rc, _ = _run(_apt_simulation_cmd(), timeout=10)
         if rc != 0:
             return None, None
         return 0, 0
@@ -117,7 +140,7 @@ def get_update_count() -> Tuple[int | None, int | None]:
 
 
 def list_kept_back() -> list[str]:
-    rc, out = _run(["bash", "-lc", "apt-get -s upgrade 2>/dev/null"], timeout=25)
+    rc, out = _run(_apt_simulation_cmd(), timeout=25)
     if rc != 0 or not out:
         return []
     kept: list[str] = []
@@ -140,7 +163,7 @@ def list_kept_back() -> list[str]:
 
 
 def list_holds() -> list[str]:
-    rc, out = _run(["bash", "-lc", "apt-mark showhold 2>/dev/null"])
+    rc, out = _run(_apt_mark_showhold_cmd())
     if rc != 0 or not out:
         return []
     return [l.strip() for l in out.splitlines() if l.strip()]
@@ -174,35 +197,35 @@ def get_apt_action_argv(action: str) -> list[str]:
 
     mapping = {
         "update": [
-            "env", "DEBIAN_FRONTEND=noninteractive",
-            "apt-get",
+            _resolve_trusted("env"), "DEBIAN_FRONTEND=noninteractive",
+            _resolve_trusted("apt-get"),
             "-o", "Dpkg::Use-Pty=0",
             "update",
         ],
         "upgrade": [
-            "env", "DEBIAN_FRONTEND=noninteractive",
-            "apt-get",
+            _resolve_trusted("env"), "DEBIAN_FRONTEND=noninteractive",
+            _resolve_trusted("apt-get"),
             "-o", "Dpkg::Use-Pty=0",
             "-o", "Dpkg::Progress-Fancy=1",
             "-y", "upgrade",
         ],
         "dist-upgrade": [
-            "env", "DEBIAN_FRONTEND=noninteractive",
-            "apt-get",
+            _resolve_trusted("env"), "DEBIAN_FRONTEND=noninteractive",
+            _resolve_trusted("apt-get"),
             "-o", "Dpkg::Use-Pty=0",
             "-o", "Dpkg::Progress-Fancy=1",
             "-y", "dist-upgrade",
         ],
         "full-upgrade": [
-            "env", "DEBIAN_FRONTEND=noninteractive",
-            "apt-get",
+            _resolve_trusted("env"), "DEBIAN_FRONTEND=noninteractive",
+            _resolve_trusted("apt-get"),
             "-o", "Dpkg::Use-Pty=0",
             "-o", "Dpkg::Progress-Fancy=1",
             "-y", "dist-upgrade",
         ],
         "autoremove": [
-            "env", "DEBIAN_FRONTEND=noninteractive",
-            "apt-get",
+            _resolve_trusted("env"), "DEBIAN_FRONTEND=noninteractive",
+            _resolve_trusted("apt-get"),
             "-o", "Dpkg::Use-Pty=0",
             "-o", "Dpkg::Progress-Fancy=1",
             "-y", "autoremove",
@@ -218,9 +241,7 @@ def get_apt_action_argv(action: str) -> list[str]:
     if is_root:
         return inner
 
-    pkexec = shutil.which("pkexec")
-    if not pkexec:
-        raise FileNotFoundError("pkexec not found. Install policykit (pkexec).")
+    pkexec = _resolve_trusted("pkexec")
 
     return [pkexec] + inner
 

@@ -1,11 +1,13 @@
-
 from dataclasses import dataclass
-import urllib.request
 import json
 import re
+import urllib.request
+from urllib.parse import urlparse
 
 GITHUB_REPO = "Heis1/laptop-health"
 LATEST_RELEASE_API = f"https://api.github.com/repos/{GITHUB_REPO}/releases/latest"
+EXPECTED_RELEASE_HOST = "github.com"
+EXPECTED_RELEASE_PATH_PREFIX = f"/{GITHUB_REPO}/releases/"
 
 @dataclass
 class UpdateCheckResult:
@@ -24,6 +26,19 @@ def _normalize(v: str):
     return tuple(int(x) for x in nums[:3])
 
 
+def _validated_release_url(url: str | None) -> str | None:
+    if not url:
+        return None
+    parsed = urlparse(url)
+    if parsed.scheme != "https":
+        return None
+    if parsed.netloc.lower() != EXPECTED_RELEASE_HOST:
+        return None
+    if not parsed.path.startswith(EXPECTED_RELEASE_PATH_PREFIX):
+        return None
+    return url
+
+
 def check_for_updates(current_version: str) -> UpdateCheckResult:
     try:
         req = urllib.request.Request(
@@ -34,7 +49,7 @@ def check_for_updates(current_version: str) -> UpdateCheckResult:
             data = json.loads(r.read().decode())
 
         latest = data.get("tag_name")
-        url = data.get("html_url")
+        url = _validated_release_url(data.get("html_url"))
 
         if not latest:
             raise RuntimeError("Invalid release response")

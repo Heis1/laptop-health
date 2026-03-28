@@ -7,17 +7,40 @@ import subprocess
 import tempfile
 import time
 
+import system
+
 POWERTOP = shutil.which("powertop") or "/usr/sbin/powertop"
 _last_ctxt: int | None = None
 _last_intr: int | None = None
 _last_sample_ts: float | None = None
 
+
+def _trusted_path(cmd: str) -> str | None:
+    path = system.which(cmd)
+    if not path:
+        return None
+    real = os.path.realpath(path)
+    trusted_prefixes = (
+        "/usr/bin/",
+        "/bin/",
+        "/usr/sbin/",
+        "/sbin/",
+        "/usr/local/bin/",
+        "/usr/local/sbin/",
+    )
+    if any(real.startswith(prefix) for prefix in trusted_prefixes):
+        return real
+    return None
+
 def powertop_installed() -> bool:
-    return shutil.which("powertop") is not None or os.path.exists("/usr/sbin/powertop")
+    return _trusted_path("powertop") is not None or os.path.exists("/usr/sbin/powertop")
 
 def sudo_cached() -> bool:
+    sudo = _trusted_path("sudo")
+    if not sudo:
+        return False
     try:
-        subprocess.check_output(["sudo", "-n", "true"], stderr=subprocess.DEVNULL)
+        subprocess.check_output([sudo, "-n", "true"], stderr=subprocess.DEVNULL)
         return True
     except Exception:
         return False
@@ -124,19 +147,21 @@ def sample_wakeups_powertop_slow(timeout_s: int = 25) -> float | None:
 
     with tempfile.TemporaryDirectory() as td:
         csv_path = os.path.join(td, "powertop.csv")
-        cmd = ["sudo", "-n", POWERTOP, "--csv", f"--csv={csv_path}"]
+        powertop = _trusted_path("powertop")
+        if not powertop:
+            return None
 
         # Some powertop versions accept just --csv=FILE, others accept --csv and write default.
         # We'll try robustly:
         tried_cmds = [
-            ["sudo", "-n", POWERTOP, f"--csv={csv_path}"],
-            ["sudo", "-n", POWERTOP, "--csv", f"--csv={csv_path}"],
-            ["sudo", "-n", POWERTOP, "--csv", csv_path],
+            [powertop, f"--csv={csv_path}"],
+            [powertop, "--csv", f"--csv={csv_path}"],
+            [powertop, "--csv", csv_path],
         ]
 
         for c in tried_cmds:
             try:
-                subprocess.run(c, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=timeout_s)
+                system.run_privileged("sudo", c, timeout_s=timeout_s)
             except Exception:
                 pass
 

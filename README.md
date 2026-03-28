@@ -86,7 +86,7 @@ Create a virtual environment:
 
     python3 -m venv .venv
     source .venv/bin/activate
-    pip install PySide6 psutil
+    pip install -r requirements-build.txt
 
 Run:
 
@@ -96,6 +96,7 @@ Run:
 
 Build using PyInstaller:
 
+    pip install -r requirements-build.txt
     pyinstaller --noconfirm --clean --name laptop-health main.py
 
 Debian packaging is handled manually using dpkg-deb.
