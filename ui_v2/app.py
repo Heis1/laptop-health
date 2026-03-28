@@ -9,7 +9,7 @@ from PySide6.QtWidgets import (
 
 from ui_v2.theme import qss
 from ui_v2.version import APP_VERSION
-from ui_v2.services.update_checker import check_for_updates
+from ui_v2.services.update_checker import RELEASES_PAGE_URL, check_for_updates
 from PySide6.QtGui import QDesktopServices
 from PySide6.QtCore import QUrl
 from ui_v2.widgets.aspect_container import AspectRatioContainer
@@ -22,20 +22,6 @@ from ui_v2.pages.updates import UpdatesPage
 from ui_v2.pages.devtools import DevToolsPage
 from ui_v2.widgets.export_report_dialog import ExportReportDialog
 from ui_v2.export.report_pdf import export_current_view_pdf, export_system_report_pdf, capture_widget_pixmap
-
-
-def _git_text(args: list[str]) -> str | None:
-    import subprocess
-    try:
-        r = subprocess.run(args, capture_output=True, text=True, timeout=1.5)
-        if r.returncode == 0:
-            out = (r.stdout or "").strip()
-            return out or None
-    except Exception:
-        pass
-    return None
-
-
 
 def _build_version_text() -> str:
     return APP_VERSION
@@ -99,8 +85,7 @@ class MainWindow(QMainWindow):
         self.btn_check_updates = QPushButton("Check for updates")
         self.btn_check_updates.setCursor(Qt.PointingHandCursor)
         left_col_l.addWidget(self.btn_check_updates)
-
-        self.btn_check_updates.clicked.connect(self._check_updates)
+        self._set_update_button_action(self._check_updates, "Check for updates")
 
 
         main.addWidget(left_col)
@@ -311,9 +296,19 @@ class MainWindow(QMainWindow):
             btn.style().polish(btn)
             btn.update()
 
+    def _set_update_button_action(self, handler, text: str) -> None:
+        try:
+            self.btn_check_updates.clicked.disconnect()
+        except Exception:
+            pass
+        self.btn_check_updates.setText(text)
+        self.btn_check_updates.clicked.connect(handler)
+
+    def _open_releases_page(self) -> None:
+        QDesktopServices.openUrl(QUrl(RELEASES_PAGE_URL))
+
     def _check_updates(self, silent: bool = False):
         from ui_v2.workers import Worker
-        from ui_v2.version import APP_VERSION
         from PySide6.QtCore import QThreadPool
 
         if not silent:
@@ -326,63 +321,20 @@ class MainWindow(QMainWindow):
             self.btn_check_updates.setEnabled(True)
 
             if not res.ok:
-                self.update_status.setText("Unable to check for updates")
-                try:
-                    self.btn_check_updates.clicked.disconnect()
-                except Exception:
-                    pass
-                self.btn_check_updates.setText("Check for updates")
-                self.btn_check_updates.clicked.connect(self._check_updates)
+                self.update_status.setText("Unable to check GitHub releases")
+                self._set_update_button_action(self._check_updates, "Check for updates")
                 return
 
             if res.update_available:
                 self.update_status.setText(f"Update available: {res.latest_version}")
-                self.btn_check_updates.setText("Open Releases Page")
-
-                try:
-                    self.btn_check_updates.clicked.disconnect()
-                except Exception:
-                    pass
-
-                def open_page():
-                    if res.release_url:
-                        QDesktopServices.openUrl(QUrl(res.release_url))
-
-                self.btn_check_updates.clicked.connect(open_page)
+                release_url = res.release_url or RELEASES_PAGE_URL
+                self._set_update_button_action(
+                    lambda: QDesktopServices.openUrl(QUrl(release_url)),
+                    "Open Releases Page",
+                )
             else:
                 self.update_status.setText("Status: Up to date")
-
-                try:
-                    self.btn_check_updates.clicked.disconnect()
-                except Exception:
-                    pass
-                self.btn_check_updates.setText("Check for updates")
-                self.btn_check_updates.clicked.connect(self._check_updates)
+                self._set_update_button_action(self._open_releases_page, "View GitHub Releases")
 
         w.signals.finished.connect(done)
-        QThreadPool.globalInstance().start(w)
-
-
-        def done(res):
-            self.btn_check_updates.setEnabled(True)
-
-            if not res.ok:
-                self.update_status.setText("Unable to check for updates")
-                return
-
-            if res.update_available:
-                self.update_status.setText(f"Update available: {res.latest_version}")
-                self.btn_check_updates.setText("Open Releases Page")
-
-                def open_page():
-                    QDesktopServices.openUrl(QUrl(res.release_url))
-
-                self.btn_check_updates.clicked.disconnect()
-                self.btn_check_updates.clicked.connect(open_page)
-
-            else:
-                self.update_status.setText("Status: Up to date")
-
-        w.signals.finished.connect(done)
-        from PySide6.QtCore import QThreadPool
         QThreadPool.globalInstance().start(w)
