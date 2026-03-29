@@ -1,5 +1,5 @@
 from __future__ import annotations
-from PySide6.QtCore import Qt, QTimer
+from PySide6.QtCore import Qt
 from PySide6.QtGui import QFont
 from PySide6.QtWidgets import (
     QApplication,
@@ -8,10 +8,6 @@ from PySide6.QtWidgets import (
 )
 
 from ui_v2.theme import qss
-from ui_v2.version import APP_VERSION
-from ui_v2.services.update_checker import RELEASES_PAGE_URL, check_for_updates
-from PySide6.QtGui import QDesktopServices
-from PySide6.QtCore import QUrl
 from ui_v2.widgets.aspect_container import AspectRatioContainer
 from ui_v2.widgets.sidebar import Sidebar
 from ui_v2.pages.dashboard import DashboardPage
@@ -22,10 +18,6 @@ from ui_v2.pages.updates import UpdatesPage
 from ui_v2.pages.devtools import DevToolsPage
 from ui_v2.widgets.export_report_dialog import ExportReportDialog
 from ui_v2.export.report_pdf import export_current_view_pdf, export_system_report_pdf, capture_widget_pixmap
-
-def _build_version_text() -> str:
-    return APP_VERSION
-
 
 
 class MainWindow(QMainWindow):
@@ -61,32 +53,6 @@ class MainWindow(QMainWindow):
 
         self.sidebar = Sidebar()
         left_col_l.addWidget(self.sidebar)
-
-        left_col_l.addStretch(1)
-
-        self.version_lbl = QLabel(_build_version_text())
-        self.version_lbl.setObjectName("SidebarVersion")
-        self.version_lbl.setAlignment(Qt.AlignLeft | Qt.AlignBottom)
-        self.version_lbl.setWordWrap(True)
-        self.version_lbl.setTextInteractionFlags(Qt.TextSelectableByMouse)
-        self.version_lbl.setStyleSheet(
-            "color: rgba(255,255,255,0.50);"
-            "padding: 2px 6px 0 6px;"
-            "font-size: 11px;"
-        )
-        left_col_l.addWidget(self.version_lbl)
-
-        # --- Update check UI ---
-        self.update_status = QLabel("Status: Not checked")
-        self.update_status.setStyleSheet("color: rgba(255,255,255,0.45); font-size:11px;")
-        left_col_l.addWidget(self.update_status)
-
-        from PySide6.QtWidgets import QPushButton
-        self.btn_check_updates = QPushButton("Check for updates")
-        self.btn_check_updates.setCursor(Qt.PointingHandCursor)
-        left_col_l.addWidget(self.btn_check_updates)
-        self._set_update_button_action(self._check_updates, "Check for updates")
-
 
         main.addWidget(left_col)
 
@@ -165,9 +131,6 @@ class MainWindow(QMainWindow):
         if "dev" in getattr(self.sidebar, "buttons", {}):
             self.sidebar.buttons["dev"].clicked.connect(lambda: self._go("dev"))
         self.setStyleSheet(qss())
-
-        # Optional: auto-check for updates once shortly after launch
-        QTimer.singleShot(1200, lambda: self._check_updates(silent=True))
 
     def closeEvent(self, event):
         from PySide6.QtCore import QThreadPool
@@ -309,51 +272,3 @@ class MainWindow(QMainWindow):
             btn.style().unpolish(btn)
             btn.style().polish(btn)
             btn.update()
-
-    def _set_update_button_action(self, handler, text: str) -> None:
-        try:
-            self.btn_check_updates.clicked.disconnect()
-        except Exception:
-            pass
-        self.btn_check_updates.setText(text)
-        self.btn_check_updates.clicked.connect(handler)
-
-    def _open_releases_page(self) -> None:
-        QDesktopServices.openUrl(QUrl(RELEASES_PAGE_URL))
-
-    def _check_updates(self, silent: bool = False):
-        from ui_v2.workers import Worker
-        from PySide6.QtCore import QThreadPool
-
-        if not silent:
-            self.update_status.setText("Checking for updates...")
-        self.btn_check_updates.setEnabled(False)
-
-        w = Worker(lambda: check_for_updates(APP_VERSION))
-
-        def done(res):
-            self.btn_check_updates.setEnabled(True)
-
-            if not res.ok:
-                self.update_status.setText("Unable to check GitHub releases")
-                self._set_update_button_action(self._check_updates, "Check for updates")
-                return
-
-            if res.update_available:
-                self.update_status.setText(f"Update available: {res.latest_version}")
-                release_url = res.deb_download_url or res.release_url or RELEASES_PAGE_URL
-                button_text = (
-                    "Download Latest .deb"
-                    if res.deb_download_url
-                    else "Open Releases Page"
-                )
-                self._set_update_button_action(
-                    lambda: QDesktopServices.openUrl(QUrl(release_url)),
-                    button_text,
-                )
-            else:
-                self.update_status.setText("Status: Up to date")
-                self._set_update_button_action(self._open_releases_page, "View GitHub Releases")
-
-        w.signals.finished.connect(done)
-        QThreadPool.globalInstance().start(w)

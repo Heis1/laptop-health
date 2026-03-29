@@ -7,6 +7,7 @@ from dataclasses import dataclass
 from typing import Tuple
 
 import system
+from ui_v2.services.devtools_state import get_linux_updates_mode
 
 
 UPDATE_ACCENT_RGBA = {
@@ -29,6 +30,63 @@ class UpdateSummary:
     accent: str
 
 
+def _simulated_update_payload() -> tuple[
+    int | None,
+    int | None,
+    bool,
+    list[dict] | None,
+    list[str] | None,
+    list[str] | None,
+]:
+    mode = get_linux_updates_mode()
+    if mode == "real":
+        return None, None, False, None, None, None
+    if mode == "error":
+        return None, None, False, [], [], []
+    if mode == "clean":
+        return 0, 0, False, [], [], []
+    if mode == "updates":
+        items = [
+            {"name": "firefox", "origin": "Ubuntu jammy-updates", "security": False, "raw": ""},
+            {"name": "curl", "origin": "Ubuntu jammy-updates", "security": False, "raw": ""},
+            {"name": "git", "origin": "Ubuntu jammy-updates", "security": False, "raw": ""},
+        ]
+        return len(items), 0, False, items, [], []
+    if mode == "security":
+        items = [
+            {"name": "openssl", "origin": "Ubuntu jammy-security", "security": True, "raw": ""},
+            {"name": "libssl3", "origin": "Ubuntu jammy-security", "security": True, "raw": ""},
+        ]
+        return len(items), len(items), False, items, [], []
+    if mode == "kept":
+        items = [
+            {"name": "linux-generic", "origin": "Ubuntu jammy-updates", "security": False, "raw": ""},
+            {"name": "linux-image-generic", "origin": "Ubuntu jammy-updates", "security": False, "raw": ""},
+        ]
+        kept = [item["name"] for item in items]
+        return len(items), 0, False, items, kept, []
+    if mode == "held":
+        items = [
+            {"name": "nvidia-driver-550", "origin": "Ubuntu jammy-updates", "security": False, "raw": ""},
+        ]
+        held = [item["name"] for item in items]
+        return len(items), 0, False, items, [], held
+    if mode == "reboot":
+        items = [
+            {"name": "linux-firmware", "origin": "Ubuntu jammy-updates", "security": False, "raw": ""},
+        ]
+        return len(items), 0, True, items, [], []
+    if mode == "mixed":
+        items = [
+            {"name": "openssl", "origin": "Ubuntu jammy-security", "security": True, "raw": ""},
+            {"name": "firefox", "origin": "Ubuntu jammy-updates", "security": False, "raw": ""},
+            {"name": "linux-generic", "origin": "Ubuntu jammy-updates", "security": False, "raw": ""},
+            {"name": "nvidia-driver-550", "origin": "Ubuntu jammy-updates", "security": False, "raw": ""},
+        ]
+        return len(items), 1, True, items, ["linux-generic"], ["nvidia-driver-550"]
+    return None, None, False, None, None, None
+
+
 def classify_update_status(total: int | None, security: int | None, reboot: bool, kept: int = 0, held: int = 0) -> tuple[str, str]:
     if total is None:
         return "Unknown", "red"
@@ -49,6 +107,9 @@ def classify_update_status(total: int | None, security: int | None, reboot: bool
 
 
 def reboot_required() -> bool:
+    total, security, reboot, items, kept, held = _simulated_update_payload()
+    if items is not None:
+        return reboot
     return os.path.exists("/var/run/reboot-required")
 
 
@@ -155,6 +216,9 @@ def _parse_upgrade_sim(out: str) -> list[dict]:
 
 
 def list_upgradable() -> list[dict]:
+    total, security, reboot, items, kept, held = _simulated_update_payload()
+    if items is not None:
+        return items
     rc, out = _run(_apt_simulation_cmd(), timeout=25)
     if rc != 0 or not out:
         return []
@@ -162,6 +226,11 @@ def list_upgradable() -> list[dict]:
 
 
 def get_update_count() -> Tuple[int | None, int | None]:
+    total, security, reboot, items, kept, held = _simulated_update_payload()
+    if items is not None:
+        if total is None:
+            return None, None
+        return int(total), 0 if security is None else int(security)
     items = list_upgradable()
     if not items:
         rc, _ = _run(_apt_simulation_cmd(), timeout=10)
@@ -174,6 +243,9 @@ def get_update_count() -> Tuple[int | None, int | None]:
 
 
 def list_kept_back() -> list[str]:
+    total, security, reboot, items, kept, held = _simulated_update_payload()
+    if items is not None:
+        return list(kept or [])
     rc, out = _run(_apt_simulation_cmd(), timeout=25)
     if rc != 0 or not out:
         return []
@@ -197,6 +269,9 @@ def list_kept_back() -> list[str]:
 
 
 def list_holds() -> list[str]:
+    total, security, reboot, items, kept, held = _simulated_update_payload()
+    if items is not None:
+        return list(held or [])
     rc, out = _run(_apt_mark_showhold_cmd())
     if rc != 0 or not out:
         return []
@@ -204,6 +279,20 @@ def list_holds() -> list[str]:
 
 
 def get_update_summary() -> UpdateSummary:
+    total, security, reboot, items, kept, held = _simulated_update_payload()
+    if items is not None:
+        kept_n = len(kept or [])
+        held_n = len(held or [])
+        badge, accent = classify_update_status(total, security, reboot, kept_n, held_n)
+        return UpdateSummary(
+            total=total,
+            security=security,
+            reboot_required=reboot,
+            kept_back=kept_n,
+            held=held_n,
+            badge=badge,
+            accent=accent,
+        )
     total, security = get_update_count()
     reboot = bool(reboot_required())
     kept = len(list_kept_back())
