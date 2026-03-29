@@ -47,7 +47,7 @@ BUILD_VENV="${BUILD_VENV:-build-venv}"
 BUILD_REQUIREMENTS="${BUILD_REQUIREMENTS:-requirements-build.txt}"
 
 # Dependencies for apt (Debian control file)
-DEPS="${DEPS:-lm-sensors, powertop, nvme-cli, power-profiles-daemon, network-manager}"
+DEPS="${DEPS:-lm-sensors, powertop, nvme-cli, power-profiles-daemon, network-manager, nmap}"
 
 # Output directories
 DIST_DIR="dist/${APP_NAME}"

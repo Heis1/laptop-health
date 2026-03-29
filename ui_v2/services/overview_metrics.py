@@ -131,6 +131,12 @@ class OverviewMetrics:
 
     cpu_vcore_v: float | None = None
 
+    ram_used_pct: float | None = None
+
+    ram_used_gb: float | None = None
+
+    ram_total_gb: float | None = None
+
 
     # Home filesystem (contains Path.home())
     home_used_pct: int | None = None
@@ -271,6 +277,19 @@ def _cpu_freq_ghz() -> float | None:
     except Exception:
         pass
     return None
+
+
+def _ram_snapshot() -> tuple[float | None, float | None, float | None]:
+    if psutil is None:
+        return None, None, None
+    try:
+        vm = psutil.virtual_memory()
+        total_gb = float(vm.total) / (1024 ** 3)
+        used_gb = float(vm.used) / (1024 ** 3)
+        used_pct = float(vm.percent)
+        return used_pct, used_gb, total_gb
+    except Exception:
+        return None, None, None
 
 
 def _find_mountpoint_for_path(target_path: str) -> str:
@@ -441,12 +460,16 @@ def gather_fast() -> OverviewMetrics:
             cpu_package_w = _read_sensors_ppt_w()
         except Exception:
             pass
+    ram_used_pct, ram_used_gb, ram_total_gb = _ram_snapshot()
 
     return OverviewMetrics(
         cpu_temp_c=_cpu_temp(),
         cpu_freq_ghz=_cpu_freq_ghz(),
         cpu_package_w=cpu_package_w,
         cpu_vcore_v=_cpu_voltage_v(),
+        ram_used_pct=ram_used_pct,
+        ram_used_gb=ram_used_gb,
+        ram_total_gb=ram_total_gb,
         down_mbps=down_mbps,
         latency_ms=_latency_ms(),
         wakeups_big=f"{ctxt:,.0f} ctx/s",
@@ -504,12 +527,16 @@ def gather_overview(interval_s: float = 1.0) -> OverviewMetrics:
     if cpu_package_w is None:
         cpu_package_w = _read_sensors_ppt_w()
     cpu_vcore_v = _cpu_voltage_v()
+    ram_used_pct, ram_used_gb, ram_total_gb = _ram_snapshot()
     ctxt, intr = _sample_wakeups_over_interval(interval_s)
     upd = get_update_summary()
 
     return OverviewMetrics(
         cpu_temp_c=_cpu_temp(),
         cpu_freq_ghz=_cpu_freq_ghz(),
+        ram_used_pct=ram_used_pct,
+        ram_used_gb=ram_used_gb,
+        ram_total_gb=ram_total_gb,
         home_used_pct=home_used,
         home_free_gb=home_free,
         home_mount=home_mount,

@@ -73,11 +73,12 @@ Laptop Health relies on the following system tools:
 - nvme-cli
 - power-profiles-daemon
 - network-manager
+- nmap
 
 Install them if needed:
 
 ```bash
-sudo apt install lm-sensors powertop nvme-cli power-profiles-daemon network-manager
+sudo apt install lm-sensors powertop nvme-cli power-profiles-daemon network-manager nmap
 ```
 
 Optional:
