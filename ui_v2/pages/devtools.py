@@ -257,6 +257,20 @@ class DevToolsPage(QWidget):
         if sidebar is not None and hasattr(sidebar, "_check_updates"):
             sidebar._check_updates()
 
+    def _apply_linux_updates_refresh(self) -> None:
+        window = self.window()
+        pages = getattr(window, "pages", {}) or {}
+
+        updates_page = pages.get("updates")
+        if updates_page is not None and hasattr(updates_page, "refresh"):
+            updates_page.refresh()
+
+        dashboard_page = pages.get("dashboard")
+        if dashboard_page is not None:
+            refresh_fn = getattr(dashboard_page, "_refresh_slow", None)
+            if callable(refresh_fn):
+                refresh_fn()
+
     def _refresh_labels(self) -> None:
         sidebar_mode = get_sidebar_update_mode()
         sidebar_mapping = {
@@ -288,14 +302,11 @@ class DevToolsPage(QWidget):
 
     def _set_linux_updates_mode(self, mode: str) -> None:
         set_linux_updates_mode(mode)
-        window = self.window()
-        pages = getattr(window, "pages", {}) or {}
-        updates_page = pages.get("updates")
-        if updates_page is not None and hasattr(updates_page, "refresh"):
-            updates_page.refresh()
+        self._apply_linux_updates_refresh()
         self._refresh_labels()
 
     def _reset_all_flags(self) -> None:
         reset_flags()
         self._apply_sidebar_refresh()
+        self._apply_linux_updates_refresh()
         self._refresh_labels()

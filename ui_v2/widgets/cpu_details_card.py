@@ -1,8 +1,12 @@
 from __future__ import annotations
 
 from collections import deque
-from PySide6.QtWidgets import QFrame, QVBoxLayout, QLabel, QSizePolicy, QHBoxLayout
+from PySide6.QtCore import Qt, QThreadPool
+from PySide6.QtWidgets import QFrame, QVBoxLayout, QLabel, QSizePolicy, QHBoxLayout, QStyle, QToolButton, QMenu
+from ui_v2.services.power_profiles import POWER_MODE_ORDER, get_active_power_mode, set_active_power_mode
+from ui_v2.widgets.cards import apply_responsive_card_fonts
 from ui_v2.widgets.sparkline import Sparkline
+from ui_v2.workers import Worker
 
 
 def _norm01(v: float, lo: float, hi: float) -> float:
@@ -50,33 +54,50 @@ class CpuDetailsCard(QFrame):
         self.setObjectName("Card")
         self.setProperty("accent", "green")
         self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+        self._pool = QThreadPool.globalInstance()
+        self._workers: list[object] = []
 
         # anti-flicker state machine
         self._state: str = "Load"
         self._pending_state: str | None = None
         self._pending_hits: int = 0
+        self._freq_smoothed: float | None = None
 
         outer = QVBoxLayout(self)
         outer.setContentsMargins(18, 16, 18, 16)
         outer.setSpacing(8)
 
-        # Header row with state badge
+        # Header row with power mode control
         hdr = QHBoxLayout()
+        ico = QLabel()
+        ico.setPixmap(self.style().standardIcon(QStyle.SP_ComputerIcon).pixmap(16, 16))
+        hdr.addWidget(ico)
+
         self.title = QLabel("CPU Details")
         self.title.setObjectName("CardTitle")
         hdr.addWidget(self.title)
         hdr.addStretch(1)
 
-        self.state_badge = QLabel(self._state)
-        self.state_badge.setObjectName("Badge")
-        hdr.addWidget(self.state_badge)
+        self.mode_btn = QToolButton()
+        self.mode_btn.setObjectName("Badge")
+        self.mode_btn.setPopupMode(QToolButton.InstantPopup)
+        self.mode_btn.setToolButtonStyle(Qt.ToolButtonTextOnly)
+        self.mode_btn.setCursor(Qt.PointingHandCursor)
+        self.mode_btn.setText("Power Mode")
+
+        self.mode_menu = QMenu(self.mode_btn)
+        for mode in POWER_MODE_ORDER:
+            act = self.mode_menu.addAction(mode)
+            act.triggered.connect(lambda checked=False, m=mode: self._set_power_mode(m))
+        self.mode_btn.setMenu(self.mode_menu)
+        hdr.addWidget(self.mode_btn)
         outer.addLayout(hdr)
 
         self.line_temp = QLabel("Max Temp: —")
         self.line_temp.setObjectName("CardSub")
         outer.addWidget(self.line_temp)
 
-        self.line_thr = QLabel("Throttle Events: —")
+        self.line_thr = QLabel(f"CPU State: {self._state}")
         self.line_thr.setObjectName("CardSub")
         outer.addWidget(self.line_thr)
 
@@ -109,12 +130,18 @@ class CpuDetailsCard(QFrame):
         self.spark = Sparkline(list(self._freq_hist), accent="green")
         self.spark.setMinimumHeight(52)
         outer.addWidget(self.spark)
+        apply_responsive_card_fonts(self)
+        self.refresh_power_mode()
+
+    def resizeEvent(self, event) -> None:
+        super().resizeEvent(event)
+        apply_responsive_card_fonts(self)
 
     def _apply_state(self, new_state: str) -> None:
         if new_state == self._state:
             return
         self._state = new_state
-        self.state_badge.setText(new_state)
+        self.line_thr.setText(f"CPU State: {new_state}")
 
         accent = _state_accent(new_state)
         self.setProperty("accent", accent)
@@ -148,8 +175,6 @@ class CpuDetailsCard(QFrame):
             f"Max Temp: {float(t):.1f}°C" if isinstance(t, (int, float)) else "Max Temp: —"
         )
 
-        self.line_thr.setText("Throttle Events: —")
-
         p = getattr(m, "cpu_package_w", None)
         self.power_value.setText(
             f"{float(p):.1f} W" if isinstance(p, (int, float)) else "— W"
@@ -171,7 +196,13 @@ class CpuDetailsCard(QFrame):
 
             self._update_state_smoothed(ghz)
 
-            self._freq_hist.append(_norm01(ghz, 0.4, 4.8))
+            if self._freq_smoothed is None:
+                self._freq_smoothed = ghz
+            else:
+                # Smooth the visual trend so it behaves like the calmer dashboard sparklines.
+                self._freq_smoothed = (self._freq_smoothed * 0.7) + (ghz * 0.3)
+
+            self._freq_hist.append(_norm01(self._freq_smoothed, 0.4, 4.8))
             if hasattr(self.spark, "set_points"):
                 self.spark.set_points(list(self._freq_hist))
             else:
@@ -179,3 +210,49 @@ class CpuDetailsCard(QFrame):
                 self.spark.update()
         else:
             self.freq_value.setText("— GHz")
+            self._freq_smoothed = None
+
+    def refresh_power_mode(self) -> None:
+        w = Worker(get_active_power_mode)
+        self._workers.append(w)
+
+        def _done(result) -> None:
+            try:
+                mode, err = result if isinstance(result, tuple) and len(result) == 2 else ("Unavailable", "invalid response")
+                self.mode_btn.setText(str(mode or "Unavailable"))
+                self.mode_btn.setEnabled(not bool(err))
+                self.mode_btn.setToolTip(err or "Change power mode")
+            finally:
+                try:
+                    self._workers.remove(w)
+                except ValueError:
+                    pass
+
+        w.signals.finished.connect(_done)
+        self._pool.start(w)
+
+    def _set_power_mode(self, mode: str) -> None:
+        self.mode_btn.setEnabled(False)
+        self.mode_btn.setText(f"{mode}…")
+        self.mode_btn.setToolTip("Applying power mode")
+
+        w = Worker(lambda: set_active_power_mode(mode))
+        self._workers.append(w)
+
+        def _done(result) -> None:
+            try:
+                ok, err = result if isinstance(result, tuple) and len(result) == 2 else (False, "invalid response")
+                if ok:
+                    self.refresh_power_mode()
+                else:
+                    self.mode_btn.setText(mode)
+                    self.mode_btn.setEnabled(True)
+                    self.mode_btn.setToolTip(err or "Failed to change power mode")
+            finally:
+                try:
+                    self._workers.remove(w)
+                except ValueError:
+                    pass
+
+        w.signals.finished.connect(_done)
+        self._pool.start(w)

@@ -43,6 +43,10 @@ class Sparkline(QWidget):
         self._points = points[:]
         self.update()
 
+    def set_accent(self, accent: str) -> None:
+        self._accent = accent
+        self.update()
+
     def paintEvent(self, event):
         w, h = self.width(), self.height()
         if w <= 2 or h <= 2:

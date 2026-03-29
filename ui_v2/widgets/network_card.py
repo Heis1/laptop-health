@@ -6,6 +6,7 @@ from PySide6.QtWidgets import QFrame, QHBoxLayout, QLabel, QStyle, QVBoxLayout
 
 from ui_v2.qtworker import QtWorker
 from ui_v2.services.network_metrics import sample_network, NetworkSnapshot
+from ui_v2.widgets.cards import apply_responsive_card_fonts
 
 
 def _fmt_mbps(v: float | None) -> str | None:
@@ -25,6 +26,7 @@ class NetworkCard(QFrame):
         super().__init__()
         self.setObjectName("Card")
         self.setProperty("accent", "blue")
+        self.setProperty("_responsive_width_divisor", 2)
 
         self.pool = QThreadPool()
 
@@ -65,19 +67,12 @@ class NetworkCard(QFrame):
 
         self.big.setFont(f)
 
-        self.big.setMinimumWidth(90)
         self.big.setStyleSheet("")
-
-        self.big.setMinimumWidth(90)
         self.big.setObjectName("CardHuge")
+        self.big.setWordWrap(True)
 
         self.sub = QLabel("—")
-
-
-        self.sub.setMinimumWidth(150)
         self.sub.setStyleSheet("")
-
-        self.sub.setMinimumWidth(140)
         self.sub.setObjectName("CardSub")
         self.sub.setWordWrap(True)
 
@@ -91,12 +86,17 @@ class NetworkCard(QFrame):
 
         # paint with defaults immediately
         self._render()
+        apply_responsive_card_fonts(self)
 
         self._refresh()
         self.timer = QTimer(self)
-        self.timer.setInterval(5000)
+        self.timer.setInterval(1000)
         self.timer.timeout.connect(self._refresh)
         self.timer.start()
+
+    def resizeEvent(self, event) -> None:
+        super().resizeEvent(event)
+        apply_responsive_card_fonts(self)
 
     # Dashboard compatibility (if dashboard calls it)
     def set_network(self, down_mbps: float | None, latency_ms: float | None) -> None:
@@ -126,7 +126,7 @@ class NetworkCard(QFrame):
         self.sub.setText(f"{self._last_ping} • IP {self._last_ip}")
 
     def _refresh(self):
-        w = QtWorker(lambda: sample_network(0.4))
+        w = QtWorker(lambda: sample_network(0.75))
         w.signals.result.connect(self._apply)
         w.signals.error.connect(self._apply_error)
         self.pool.start(w)

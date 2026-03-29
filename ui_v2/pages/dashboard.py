@@ -3,10 +3,9 @@ from __future__ import annotations
 from collections import deque
 
 from PySide6.QtCore import QThreadPool, QTimer
-from PySide6.QtGui import QFontMetrics
 from PySide6.QtWidgets import QWidget, QVBoxLayout, QGridLayout, QSizePolicy
 
-from ui_v2.widgets.cards import MetricCard, UpdatesCard
+from ui_v2.widgets.cards import MetricCard, UpdatesCard, apply_responsive_card_fonts
 from ui_v2.widgets.disk_usage_card import DiskUsageCard
 from ui_v2.widgets.network_card import NetworkCard
 from ui_v2.widgets.inspector import Inspector
@@ -17,12 +16,13 @@ from ui_v2.services.refresh_controller import RefreshController, RefreshState
 
 
 def _fix_top_row_heights(*widgets, h: int = 165) -> None:
-    # Force consistent height for top-row cards (CPU/GPU/Disk Usage)
+    # Keep a readable minimum height but still allow resize.
     for w in widgets:
         try:
             w.setMinimumHeight(h)
             w.setMaximumHeight(16777215)
             w.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+            w.setMinimumWidth(0)
         except Exception:
             pass
 
@@ -49,15 +49,37 @@ def _fmt_cpu(temp_c: float | None, ghz: float | None) -> tuple[str, str, str]:
     return big, sub, accent
 
 
+def _fmt_ram(used_pct: float | None, used_gb: float | None, total_gb: float | None) -> tuple[str, str, str]:
+    if used_pct is None:
+        return "—", "—", "blue"
+
+    big = f"{used_pct:.0f}%"
+    if used_gb is None or total_gb is None:
+        sub = "RAM in use"
+    else:
+        free_gb = max(0.0, total_gb - used_gb)
+        sub = f"{used_gb:.1f} / {total_gb:.1f} GB used • {free_gb:.1f} GB free"
+
+    accent = "green"
+    if used_pct >= 90:
+        accent = "red"
+    elif used_pct >= 75:
+        accent = "orange"
+    return big, sub, accent
+
+
 class DashboardPage(QWidget):
     def __init__(self):
         super().__init__()
         self.pool = QThreadPool()
         self._workers: list[object] = []
+        self._top_cards: list[QWidget] = []
+        self._mid_cards: list[QWidget] = []
 
         # Sparkline histories (store 0..1 floats)
         self._cpu_hist = deque([0.0] * 30, maxlen=30)
         self._gpu_hist = deque([0.0] * 30, maxlen=30)
+        self._ram_hist = deque([0.0] * 30, maxlen=30)
 
         # GPU last-known values (avoid flicker / avoid overwriting with None)
         self._gpu_last_temp: float | None = None
@@ -65,8 +87,6 @@ class DashboardPage(QWidget):
         self._gpu_last_name: str | None = None
 
 
-        # Cache fast-owned bottom-row metrics so slow refresh can't reset them
-        self._last_wakeups = ("—", "—", "green")  # (big, sub, accent)
         self._last_net = (None, None)  # (down_mbps, latency_ms)
 
         # Cache fast metrics so slow refresh (None fields) can't zero the UI
@@ -77,85 +97,82 @@ class DashboardPage(QWidget):
         # cache slow metrics so fast refresh can't wipe them
         self._disk_home_used = None
         self._disk_home_free = None
+        self._disk_home_mount = None
+        self._disk_root_used = None
         self._disk_root_free = None
+        self._disk_target = "root"
 
         outer = QVBoxLayout(self)
         outer.setContentsMargins(0, 0, 0, 0)
         outer.setSpacing(12)
 
         grid = QGridLayout()
-        # Lock dashboard columns so card content can't resize layout
-        grid.setColumnStretch(0, 2)
-        grid.setColumnStretch(1, 2)
-        grid.setColumnStretch(2, 2)
-        grid.setColumnStretch(3, 2)
         grid.setHorizontalSpacing(12)
         grid.setVerticalSpacing(12)
-        grid.setColumnStretch(0, 1)
-        grid.setColumnStretch(1, 1)
-        grid.setColumnStretch(2, 2)
-        grid.setColumnStretch(3, 2)
+        # Keep the 1-column cards visibly wider while preserving the 2-column spans.
+        grid.setColumnStretch(0, 3)
+        grid.setColumnStretch(1, 3)
+        grid.setColumnStretch(2, 4)
+        grid.setColumnStretch(3, 4)
 
         # Top row
         self.cpu = MetricCard("CPU", "—", "—", "green", spark_points=[0.0]*24)
         self.gpu = MetricCard("GPU", "—", "—", "blue", spark_points=[0.0]*24)
+        self.cpu.big_lbl.setObjectName("CardHuge")
+        self.gpu.big_lbl.setObjectName("CardHuge")
+        self.cpu.sub_lbl.setWordWrap(True)
+        self.gpu.sub_lbl.setWordWrap(True)
+        apply_responsive_card_fonts(self.cpu)
+        apply_responsive_card_fonts(self.gpu)
 
         self.disk = DiskUsageCard(0, "—")
-        try:
-            self.disk.title.setText("Disk Usage (Home)")
-        except Exception:
-            pass
 
         _fix_top_row_heights(self.cpu, self.gpu, self.disk, h=165)
+        for w in (self.cpu, self.gpu):
+            w.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Expanding)
+            w.setMinimumWidth(0)
+        self._top_cards = [self.cpu, self.gpu, self.disk]
 
         grid.addWidget(self.cpu, 0, 0)
         grid.addWidget(self.gpu, 0, 1)
         grid.addWidget(self.disk, 0, 2, 1, 2)
 
         # Second row
-        self.wakeups = MetricCard("Wakeups", "—", "—", "green")
-        # Prevent layout shift when ctx/s goes 4->5 digits
-        try:
-            fm = QFontMetrics(self.wakeups.big_lbl.font())
-            self.wakeups.big_lbl.setMinimumWidth(fm.horizontalAdvance('99999 ctx/s') + 10)
-        except Exception:
-            pass
+        self.wakeups = MetricCard("RAM", "—", "—", "blue", spark_points=[0.0] * 24)
+        self.wakeups.big_lbl.setObjectName("CardHuge")
+        self.wakeups.big_lbl.setWordWrap(True)
+        self.wakeups.sub_lbl.setWordWrap(True)
+        apply_responsive_card_fonts(self.wakeups)
         self.updates = UpdatesCard("red")
         self.updates.details_requested.connect(self._go_updates)
         self.net = NetworkCard()
 
-        for w in (self.wakeups, self.updates, self.net):
-            w.setFixedHeight(165)
-            w.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+        for w in (self.wakeups, self.updates):
+            w.setMinimumHeight(165)
+            w.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Expanding)
+            w.setMinimumWidth(0)
+        self.net.setMinimumHeight(165)
+        self.net.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+        self.net.setMinimumWidth(0)
+        self._mid_cards = [self.wakeups, self.updates, self.net]
 
         grid.addWidget(self.wakeups, 1, 0)
         grid.addWidget(self.updates, 1, 1)
         grid.addWidget(self.net, 1, 2, 1, 2)
 
-        # ---- Layout lock: prevent Disk/Net minimum size from squeezing cols 0/1 ----
-        try:
-            # Determine a sane minimum width for the "small" cards (col 0/1)
-            w0 = self.cpu.sizeHint().width()
-            w1 = self.gpu.sizeHint().width()
-            w2 = self.wakeups.sizeHint().width()
-            w3 = self.updates.sizeHint().width()
-            min_w = max(w0, w1, w2, w3)
-
-            # Lock both small columns to at least this width
-            grid.setColumnMinimumWidth(0, min_w)
-            grid.setColumnMinimumWidth(1, min_w)
-
-            # Make sure the small cards agree they can expand
-            for card in (self.cpu, self.gpu, self.wakeups, self.updates):
-                try:
-                    card.setMinimumWidth(min_w)
-                except Exception:
-                    pass
-        except Exception:
-            pass
+        # Let cards compress with the window instead of pinning desktop widths.
+        for card in (self.cpu, self.gpu, self.disk, self.wakeups, self.updates, self.net):
+            try:
+                card.setMinimumWidth(0)
+            except Exception:
+                pass
 
         outer.addLayout(grid)
         self.inspector = Inspector()
+        try:
+            self.inspector.disk.target_changed.connect(self._on_disk_target_changed)
+        except Exception:
+            pass
         outer.addWidget(self.inspector)
 
         # Refresh controller (debounce + busy state)
@@ -183,6 +200,45 @@ class DashboardPage(QWidget):
 
         # GPU cadence gate (~5s)
         self._gpu_last_ts = 0.0
+        self._apply_responsive_card_sizes()
+
+    def resizeEvent(self, event) -> None:
+        super().resizeEvent(event)
+        self._apply_responsive_card_sizes()
+
+    def _apply_responsive_card_sizes(self) -> None:
+        width = max(900, self.width())
+        if width >= 1400:
+            row_h = 175
+            spark_h = 54
+        elif width >= 1180:
+            row_h = 165
+            spark_h = 48
+        elif width >= 1020:
+            row_h = 156
+            spark_h = 42
+        else:
+            row_h = 148
+            spark_h = 38
+
+        for card in self._top_cards + self._mid_cards:
+            try:
+                card.setMinimumHeight(row_h)
+                card.setMaximumHeight(16777215)
+            except Exception:
+                pass
+
+        for spark_owner in (self.cpu, self.gpu):
+            try:
+                if getattr(spark_owner, "spark", None) is not None:
+                    spark_owner.spark.setMinimumHeight(spark_h)
+                    spark_owner.spark.setMaximumHeight(spark_h)
+            except Exception:
+                pass
+
+    def _on_disk_target_changed(self, target: str, used_pct, free_gb, mount_label: str) -> None:
+        self._disk_target = str(target or "root")
+        self.disk.set_disk(used_pct, free_gb, target=self._disk_target, mount_label=mount_label)
 
     def _refresh_fast(self):
         # Fast metrics (non-blocking)
@@ -345,54 +401,47 @@ class DashboardPage(QWidget):
             self._disk_home_used = result.home_used_pct
         if result.home_free_gb is not None:
             self._disk_home_free = result.home_free_gb
+        if result.home_mount is not None:
+            self._disk_home_mount = result.home_mount
+        if result.root_used_pct is not None:
+            self._disk_root_used = result.root_used_pct
         if result.root_free_gb is not None:
             self._disk_root_free = result.root_free_gb
 
         home_used = self._disk_home_used
         home_free = self._disk_home_free
+        root_used = self._disk_root_used
         root_free = self._disk_root_free
 
-        disk_accent = "orange"
-        if root_free is not None:
-            if root_free < 5:
-                disk_accent = "red"
-            elif root_free < 8:
-                disk_accent = "orange"
-
-        try:
-            self.disk.setProperty("accent", disk_accent)
-            self.disk.style().unpolish(self.disk)
-            self.disk.style().polish(self.disk)
-            self.disk.update()
-        except Exception:
-            pass
-
-        if home_used is None:
-            self.disk.big.setText("—")
-            self.disk.bar.setValue(0)
+        if self._disk_target == "home":
+            self.disk.set_disk(
+                home_used,
+                home_free,
+                target="home",
+                mount_label=self._disk_home_mount or "Home",
+            )
         else:
-            self.disk.big.setText(f"{int(home_used)}% Used")
-            self.disk.bar.setValue(max(0, min(100, int(home_used))))
-
-        if home_free is None and root_free is None:
-            self.disk.sub.setText("—")
-        else:
-            hf = "—" if home_free is None else f"{home_free:.0f} GB Free"
-            rf = "—" if root_free is None else f"{root_free:.0f} GB Free"
-            self.disk.sub.setText(f"Home: {hf}   •   Root: {rf}")
-        # Wakeups + Network + Updates
-        # Fast loop owns wakeups/net; slow loop owns updates. Cache fast values so slow tick can't wipe them.
+            self.disk.set_disk(
+                root_used,
+                root_free,
+                target="root",
+                mount_label="Root",
+            )
+        # RAM + Network + Updates
         try:
-            wb = getattr(result, 'wakeups_big', None)
-            ws = getattr(result, 'wakeups_sub', None)
-            wa = getattr(result, 'wakeups_accent', None)
-            if wb is not None or ws is not None or wa is not None:
-                self._last_wakeups = (
-                    wb if wb is not None else self._last_wakeups[0],
-                    ws if ws is not None else self._last_wakeups[1],
-                    wa if wa is not None else self._last_wakeups[2],
-                )
-            self.wakeups.set_values(*self._last_wakeups)
+            ram_big, ram_sub, ram_accent = _fmt_ram(
+                getattr(result, "ram_used_pct", None),
+                getattr(result, "ram_used_gb", None),
+                getattr(result, "ram_total_gb", None),
+            )
+            self.wakeups.set_values(ram_big, ram_sub, ram_accent)
+            ram_pct = getattr(result, "ram_used_pct", None)
+            if isinstance(ram_pct, (int, float)):
+                self._ram_hist.append(_norm01(float(ram_pct), 35.0, 100.0))
+                try:
+                    self.wakeups.set_spark(list(self._ram_hist))
+                except Exception:
+                    pass
         except Exception:
             pass
 

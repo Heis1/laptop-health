@@ -5,6 +5,7 @@ from typing import Optional
 import shutil
 
 from PySide6.QtWidgets import QFrame, QHBoxLayout, QLabel, QStyle, QVBoxLayout
+from ui_v2.widgets.cards import apply_responsive_card_fonts
 from ui_v2.widgets.progressbar import SlimBar
 
 
@@ -46,6 +47,25 @@ def find_mountpoint_for_path(target_path: str) -> str:
     return best
 
 
+def accent_for_disk_target(target: str, used_pct: int | None) -> str:
+    if used_pct is None:
+        return "blue"
+
+    used = float(used_pct)
+    if target == "root":
+        if used >= 88:
+            return "red"
+        if used >= 75:
+            return "orange"
+        return "green"
+
+    if used >= 95:
+        return "red"
+    if used >= 88:
+        return "orange"
+    return "green"
+
+
 class DiskUsageCard(QFrame):
     def __init__(
         self,
@@ -57,9 +77,11 @@ class DiskUsageCard(QFrame):
         super().__init__(parent)
 
         self.mount_path = mount_path
+        self.target = "root"
 
         self.setObjectName("Card")
         self.setProperty("accent", "orange")
+        self.setProperty("_responsive_width_divisor", 2)
         self.setMinimumHeight(120)  # reduced height
 
         outer = QVBoxLayout(self)
@@ -88,14 +110,13 @@ class DiskUsageCard(QFrame):
         
         self.big.setFont(f)
 
-        self.big.setMinimumWidth(90)
         self.big.setObjectName("CardBig")
+        self.big.setWordWrap(True)
         outer.addWidget(self.big)
 
         self.sub = QLabel("—")
-
-        self.sub.setMinimumWidth(150)
         self.sub.setObjectName("CardSub")
+        self.sub.setWordWrap(True)
         outer.addWidget(self.sub)
 
         self.bar = SlimBar()
@@ -112,8 +133,19 @@ class DiskUsageCard(QFrame):
             self.sub.setText(free_text or "—")
         else:
             self.refresh()
+        apply_responsive_card_fonts(self)
 
-    def set_disk(self, used_pct: int | None, free_gb: float | None):
+    def resizeEvent(self, event) -> None:
+        super().resizeEvent(event)
+        apply_responsive_card_fonts(self)
+
+    def set_disk(self, used_pct: int | None, free_gb: float | None, target: str = "root", mount_label: str | None = None):
+        self.target = target
+        self.setProperty("accent", accent_for_disk_target(target, used_pct))
+        self.style().unpolish(self)
+        self.style().polish(self)
+        self.update()
+
         if used_pct is None:
             self.big.setText("—")
             self.sub.setText("—")
@@ -123,7 +155,8 @@ class DiskUsageCard(QFrame):
         if free_gb is None:
             self.sub.setText("—")
         else:
-            self.sub.setText(f"{free_gb:.0f} GB Free")
+            target_text = mount_label or ("Home" if target == "home" else "Root")
+            self.sub.setText(f"{target_text} • {free_gb:.0f} GB Free")
         self.bar.setValue(max(0, min(100, int(used_pct))))
 
     def refresh(self):

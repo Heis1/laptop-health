@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 from collections import deque
+from dataclasses import dataclass
+from pathlib import Path
 from typing import Optional
 
-from PySide6.QtCore import QThreadPool, QTimer, Qt, QEvent
+from PySide6.QtCore import QThreadPool, QTimer, Qt, QEvent, Signal
 from PySide6.QtWidgets import (
     QFrame,
     QGridLayout,
@@ -16,16 +18,23 @@ from PySide6.QtWidgets import (
 
 from ui_v2.qtworker import QtWorker
 from ui_v2.services.storage_metrics import gather_storage, StorageSnapshot, MountMetrics
+from ui_v2.widgets.cards import apply_responsive_card_fonts
 from ui_v2.widgets.sparkline import Sparkline
 
 
-def _accent_for_used(used_pct: int | None) -> str:
+def _accent_for_used(target: str, used_pct: int | None) -> str:
     if used_pct is None:
         return "purple"
     u = float(used_pct)
-    if u < 75:
-        return "green"
+    if target == "root":
+        if u < 75:
+            return "green"
+        if u < 88:
+            return "orange"
+        return "red"
     if u < 88:
+        return "green"
+    if u < 95:
         return "orange"
     return "red"
 
@@ -53,7 +62,7 @@ def _fmt_mbps(v: float | None) -> str:
     return f"{v:.0f}"
 
 
-def _fmt_meta(m: MountMetrics) -> str:
+def _fmt_meta(m: MountMetrics | _OverviewMount) -> str:
     bits: list[str] = []
     if m.devpath:
         bits.append(m.devpath)
@@ -72,7 +81,25 @@ def _fmt_meta(m: MountMetrics) -> str:
     return " • ".join(bits) if bits else "—"
 
 
+@dataclass
+class _OverviewMount:
+    mount: str
+    used_pct: int | None
+    free_gb: float | None
+    read_mbps: float | None = None
+    write_mbps: float | None = None
+    devpath: str | None = None
+    fstype: str | None = None
+    rota: int | None = None
+    size: str | None = None
+    temp_c: float | None = None
+    total_read_gb: float | None = None
+    total_written_gb: float | None = None
+    io_devname: str | None = None
+
+
 class DiskInfoCard(QFrame):
+    target_changed = Signal(str, object, object, str)
     """
     Inspector tile: disk activity view with Root/Home toggle.
       - Big Read/Write MB/s + sparklines
@@ -85,12 +112,15 @@ class DiskInfoCard(QFrame):
         super().__init__(parent)
         self.setObjectName("Card")
         self.setProperty("accent", "purple")
-
         self.pool = QThreadPool()
 
         # Root/Home toggle state
         self._target = "root"  # "root" or "home"
         self._last_snap: StorageSnapshot | None = None
+        self._overview = {
+            "root": _OverviewMount("/", None, None),
+            "home": _OverviewMount(str(Path.home()), None, None),
+        }
 
         # Separate history buffers per target (normalized 0..1)
         self._hist = {
@@ -177,12 +207,16 @@ class DiskInfoCard(QFrame):
         # initial tooltip
         self._update_badge_tooltip()
 
-        # First refresh and timer
         self._refresh()
         self.timer = QTimer(self)
         self.timer.setInterval(5000)
         self.timer.timeout.connect(self._refresh)
         self.timer.start()
+        apply_responsive_card_fonts(self)
+
+    def resizeEvent(self, event) -> None:
+        super().resizeEvent(event)
+        apply_responsive_card_fonts(self)
 
     def eventFilter(self, obj, event):
         # Update tooltip right as user hovers, so it always shows "switch to X"
@@ -199,10 +233,10 @@ class DiskInfoCard(QFrame):
         self.badge.setText("Home" if self._target == "home" else "Root")
         self._update_badge_tooltip()
 
-        # Re-render immediately from last snapshot WITHOUT appending duplicates
         if self._last_snap is not None:
-            m = self._select_mount(self._last_snap)
-            self._render(m, append=False)
+            self._render(self._select_mount(self._last_snap), append=False)
+            return
+        self._render(self._overview[self._target], append=False)
 
     def _select_mount(self, snap: StorageSnapshot) -> MountMetrics:
         return snap.home if self._target == "home" else snap.root
@@ -221,7 +255,7 @@ class DiskInfoCard(QFrame):
         if msg:
             self.meta.setText(msg)
 
-    def _render(self, m: MountMetrics, append: bool):
+    def _render(self, m: _OverviewMount, append: bool):
         # Compact summary line
         used = "—" if m.used_pct is None else f"{int(m.used_pct)}% used"
         free = "—" if m.free_gb is None else f"{float(m.free_gb):.0f} GB free"
@@ -252,10 +286,27 @@ class DiskInfoCard(QFrame):
 
         # Meta + accent
         self.meta.setText(_fmt_meta(m))
-        self.setProperty("accent", _accent_for_used(m.used_pct))
+        self.setProperty("accent", _accent_for_used(self._target, m.used_pct))
         self.style().unpolish(self)
         self.style().polish(self)
         self.update()
+        mount_label = "Home" if self._target == "home" else "Root"
+        self.target_changed.emit(self._target, m.used_pct, m.free_gb, mount_label)
+
+    def update_overview(self, m) -> None:
+        home_mount = getattr(m, "home_mount", None) or str(Path.home())
+        self._overview["root"] = _OverviewMount(
+            mount="/",
+            used_pct=getattr(m, "root_used_pct", None),
+            free_gb=getattr(m, "root_free_gb", None),
+        )
+        self._overview["home"] = _OverviewMount(
+            mount=home_mount,
+            used_pct=getattr(m, "home_used_pct", None),
+            free_gb=getattr(m, "home_free_gb", None),
+        )
+        if self._last_snap is None:
+            self._render(self._overview[self._target], append=False)
 
     def _apply(self, snap):
         if not isinstance(snap, StorageSnapshot):
