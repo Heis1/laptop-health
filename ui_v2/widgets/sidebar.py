@@ -171,7 +171,6 @@ class Sidebar(QFrame):
         if release_date:
             return f"Version {APP_VERSION}\nReleased {release_date}"
         return f"Version {APP_VERSION}"
-
     def _open_release(self, event):
         if self._release_url:
             webbrowser.open(self._release_url)

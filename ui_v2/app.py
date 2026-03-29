@@ -3,11 +3,12 @@ from PySide6.QtCore import Qt
 from PySide6.QtGui import QFont
 from PySide6.QtWidgets import (
     QApplication,
-    QFrame, QHBoxLayout, QMainWindow, QStackedWidget,
+    QFrame, QHBoxLayout, QLabel, QMainWindow, QStackedWidget,
     QVBoxLayout, QWidget, QStyle, QToolButton, QMenu, QDialog
 )
 
 from ui_v2.theme import qss
+from ui_v2.widgets.aspect_container import AspectRatioContainer
 from ui_v2.widgets.sidebar import Sidebar
 from ui_v2.pages.dashboard import DashboardPage
 from ui_v2.pages.power import PowerPage
