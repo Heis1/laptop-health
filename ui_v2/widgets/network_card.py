@@ -90,7 +90,7 @@ class NetworkCard(QFrame):
 
         self._refresh()
         self.timer = QTimer(self)
-        self.timer.setInterval(5000)
+        self.timer.setInterval(1000)
         self.timer.timeout.connect(self._refresh)
         self.timer.start()
 
@@ -126,7 +126,7 @@ class NetworkCard(QFrame):
         self.sub.setText(f"{self._last_ping} • IP {self._last_ip}")
 
     def _refresh(self):
-        w = QtWorker(lambda: sample_network(0.4))
+        w = QtWorker(lambda: sample_network(0.75))
         w.signals.result.connect(self._apply)
         w.signals.error.connect(self._apply_error)
         self.pool.start(w)

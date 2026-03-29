@@ -61,6 +61,86 @@ def _qss_base() -> str:
         background: #162b46;
     }}
 
+    QPushButton#ActionButton {{
+        color: rgba(248,251,255,0.96);
+        background: rgba(255,255,255,0.08);
+        border: 1px solid rgba(255,255,255,0.14);
+        border-radius: 10px;
+        padding: 6px 12px;
+        font-size: 12px;
+        font-weight: 700;
+    }}
+
+    QPushButton#ActionButton:hover {{
+        background: rgba(255,255,255,0.12);
+        border: 1px solid rgba(255,255,255,0.20);
+    }}
+
+    QPushButton#ActionButton:pressed {{
+        background: rgba(255,255,255,0.06);
+    }}
+
+    QPushButton#ActionButton:disabled {{
+        color: rgba(232,240,255,0.46);
+        background: rgba(255,255,255,0.04);
+        border: 1px solid rgba(255,255,255,0.08);
+    }}
+
+    QComboBox#ActionSelect {{
+        color: rgba(248,251,255,0.96);
+        background: rgba(255,255,255,0.08);
+        border: 1px solid rgba(255,255,255,0.14);
+        border-radius: 10px;
+        padding: 6px 34px 6px 12px;
+        font-size: 12px;
+        font-weight: 700;
+    }}
+
+    QComboBox#ActionSelect:hover {{
+        background: rgba(255,255,255,0.12);
+        border: 1px solid rgba(255,255,255,0.20);
+    }}
+
+    QComboBox#ActionSelect::drop-down {{
+        border: none;
+        width: 24px;
+    }}
+
+    QComboBox#ActionSelect QAbstractItemView {{
+        background: rgba(10,14,22,0.98);
+        color: #e8f0ff;
+        border: 1px solid rgba(255,255,255,0.16);
+        selection-background-color: rgba(96,165,250,0.22);
+        padding: 4px;
+    }}
+
+    QLineEdit#ActionInput {{
+        color: rgba(248,251,255,0.96);
+        background: rgba(255,255,255,0.08);
+        border: 1px solid rgba(255,255,255,0.14);
+        border-radius: 10px;
+        padding: 6px 12px;
+        font-size: 12px;
+        font-weight: 600;
+        selection-background-color: rgba(96,165,250,0.32);
+    }}
+
+    QLineEdit#ActionInput:hover {{
+        background: rgba(255,255,255,0.12);
+        border: 1px solid rgba(255,255,255,0.20);
+    }}
+
+    QLineEdit#ActionInput:focus {{
+        border: 1px solid rgba(96,165,250,0.75);
+        background: rgba(255,255,255,0.12);
+    }}
+
+    QLineEdit#ActionInput:disabled {{
+        color: rgba(232,240,255,0.46);
+        background: rgba(255,255,255,0.04);
+        border: 1px solid rgba(255,255,255,0.08);
+    }}
+
     /* ---- Cards ---- */
     #Card {{
         background: rgba(255,255,255,0.02);

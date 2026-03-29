@@ -13,7 +13,7 @@ ICON_MAP = {
     "CPU": QStyle.SP_ComputerIcon,
     "GPU": QStyle.SP_ComputerIcon,
     "Disk Usage": QStyle.SP_DriveHDIcon,
-    "Pending Updates": QStyle.SP_MessageBoxWarning,
+    "Pending Updates": QStyle.SP_BrowserReload,
     "Network": QStyle.SP_DriveNetIcon,
     "Wakeup Analysis": QStyle.SP_DialogApplyButton,
 }
@@ -315,7 +315,7 @@ class UpdatesCard(QFrame):
         hdr.setSpacing(10)
 
         ico = QLabel()
-        ico.setPixmap(self.style().standardIcon(QStyle.SP_MessageBoxWarning).pixmap(18, 18))
+        ico.setPixmap(self.style().standardIcon(QStyle.SP_BrowserReload).pixmap(18, 18))
         hdr.addWidget(ico)
 
         title = QLabel("Pending Updates")
