@@ -18,6 +18,7 @@ The current version includes:
 - modular service architecture
 - live sparklines and enhanced system metrics
 - integrated update checking and download support
+- configurable network discovery and improved live network monitoring
 
 ---
 
@@ -28,6 +29,7 @@ The current version includes:
 - Wake-up / power state awareness
 - Power profile detection
 - Network diagnostics module
+- Configurable device discovery with quiet/noisy scans
 - Optional speed testing support
 - Dark mode support
 - Clean, card-based UI layout
@@ -52,13 +54,13 @@ This will fetch the latest release asset (preferring `amd64`).
 Install using:
 
 ```bash
-pkexec apt install ./laptop-health_1.0.2-1_amd64.deb
+pkexec apt install ./laptop-health_1.1.0-1_amd64.deb
 ```
 
 Or manually:
 
 ```bash
-sudo dpkg -i laptop-health_1.0.2-1_amd64.deb
+sudo dpkg -i laptop-health_1.1.0-1_amd64.deb
 sudo apt -f install
 ```
 
@@ -131,22 +133,25 @@ python main.py
 
 ## Packaging
 
-Build using PyInstaller:
+Build a release `.deb` with:
 
 ```bash
-pip install -r requirements-build.txt
-pyinstaller --noconfirm --clean --name laptop-health main.py
+VERSION=1.1.0 ./release.sh
 ```
 
-Debian packaging is handled manually using dpkg-deb.
+This produces:
+
+```text
+pkg/laptop-health_1.1.0-1_amd64.deb
+```
+
+The release script builds the PyInstaller bundle and then stages the Debian package with the required runtime dependencies.
 
 ---
 
 ## Versioning
 
-Releases follow semantic versioning:
-
-v1.x.y
+Releases follow semantic versioning, for example `v1.1.0`.
 
 Binary installers are attached to GitHub Releases.
 
