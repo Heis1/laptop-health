@@ -44,6 +44,7 @@ class Sidebar(QFrame):
         mk("power", "Power && Thermal", QStyle.SP_ComputerIcon)
         mk("network", "Network", QStyle.SP_DriveNetIcon)
         mk("storage", "Storage", QStyle.SP_DriveHDIcon)
+        mk("remote", "Probe/s", QStyle.SP_DirLinkIcon)
         mk("updates", "Updates", QStyle.SP_BrowserReload)
 
         if DEV_MODE:

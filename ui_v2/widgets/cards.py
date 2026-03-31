@@ -123,9 +123,9 @@ class MetricCard(QFrame):
         ico.setPixmap(icon.pixmap(18, 18))
         row.addWidget(ico)
 
-        t = QLabel(title)
-        t.setObjectName("CardTitle")
-        row.addWidget(t)
+        self.title_lbl = QLabel(title)
+        self.title_lbl.setObjectName("CardTitle")
+        row.addWidget(self.title_lbl)
         row.addStretch(1)
 
         if badge:
@@ -204,6 +204,9 @@ class MetricCard(QFrame):
         self.style().unpolish(self)
         self.style().polish(self)
         self.update()
+
+    def set_title(self, title: str) -> None:
+        self.title_lbl.setText(title)
 
 
 class WakeupsCard(QFrame):

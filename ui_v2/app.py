@@ -1,4 +1,11 @@
 from __future__ import annotations
+import os
+from pathlib import Path
+import sys
+
+if __package__ in (None, ""):
+    sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QFont
 from PySide6.QtWidgets import (
@@ -13,10 +20,13 @@ from ui_v2.widgets.sidebar import Sidebar
 from ui_v2.pages.dashboard import DashboardPage
 from ui_v2.pages.power import PowerPage
 from ui_v2.pages.network import NetworkPage
+from ui_v2.pages.remote import RemotePage
 from ui_v2.pages.storage import StoragePage
 from ui_v2.pages.updates import UpdatesPage
 from ui_v2.pages.devtools import DevToolsPage
+from ui_v2.services.probe import ProbeConfig, load_probe_configs, save_probe_config, save_probe_configs
 from ui_v2.widgets.export_report_dialog import ExportReportDialog
+from ui_v2.widgets.probe_settings_dialog import ProbeSettingsDialog
 from ui_v2.export.report_pdf import export_current_view_pdf, export_system_report_pdf, capture_widget_pixmap
 
 
@@ -79,6 +89,13 @@ class MainWindow(QMainWindow):
         self.btn_export.setMenu(export_menu)
         t.addWidget(self.btn_export)
 
+        self.btn_probe = QToolButton()
+        self.btn_probe.setObjectName("TopBtn")
+        self.btn_probe.setText("Probe")
+        self.btn_probe.setToolTip("Configure Raspberry Pi probe")
+        self.btn_probe.clicked.connect(self._open_probe_settings)
+        t.addWidget(self.btn_probe)
+
        #Exit Button configuration
 
         exit_btn = QToolButton()
@@ -102,10 +119,11 @@ class MainWindow(QMainWindow):
             "power": PowerPage(),
             "storage": StoragePage(),
             "network": NetworkPage(),
+            "remote": RemotePage(self._open_probe_settings, self),
             "updates": UpdatesPage(),
             "dev": DevToolsPage(),
         }
-        self.page_order = ["dashboard", "power", "storage", "network", "updates", "dev"]
+        self.page_order = ["dashboard", "power", "storage", "network", "remote", "updates", "dev"]
         for k in self.page_order:
             self.stack.addWidget(self.pages[k])
         c.addWidget(self.stack, 1)
@@ -115,6 +133,7 @@ class MainWindow(QMainWindow):
         self.sidebar.buttons["power"].clicked.connect(lambda: self._go("power"))
         self.sidebar.buttons["storage"].clicked.connect(lambda: self._go("storage"))
         self.sidebar.buttons["network"].clicked.connect(lambda: self._go("network"))
+        self.sidebar.buttons["remote"].clicked.connect(lambda: self._go("remote"))
         self.sidebar.buttons["updates"].clicked.connect(lambda: self._go("updates"))
         # Dev Tools is only present in developer mode
         if "dev" in getattr(self.sidebar, "buttons", {}):
@@ -261,3 +280,53 @@ class MainWindow(QMainWindow):
             btn.style().unpolish(btn)
             btn.style().polish(btn)
             btn.update()
+
+    def _open_probe_settings(self, probe_id: str | None = None) -> None:
+        configs = load_probe_configs()
+        selected = next((cfg for cfg in configs if cfg.id == probe_id), None)
+        if selected is None:
+            selected = configs[0] if configs else ProbeConfig(id="", name="Raspberry Pi")
+        dlg = ProbeSettingsDialog(selected, self)
+        if dlg.exec() != QDialog.Accepted:
+            return
+        updated = dlg.config()
+        if probe_id and configs:
+            for index, cfg in enumerate(configs):
+                if cfg.id == probe_id:
+                    configs[index] = updated
+                    break
+            else:
+                configs.append(updated)
+            save_probe_configs(configs)
+        else:
+            save_probe_config(updated)
+        for key in ("dashboard", "remote"):
+            page = self.pages.get(key)
+            if page is None:
+                continue
+            if hasattr(page, "reload_probe_config"):
+                try:
+                    page.reload_probe_config()
+                except Exception:
+                    pass
+            if hasattr(page, "refresh_now"):
+                try:
+                    page.refresh_now()
+                except Exception:
+                    pass
+
+
+def main(argv: list[str] | None = None) -> int:
+    argv = list(argv or sys.argv)
+    if "--dev" in argv:
+        os.environ["LAPTOP_HEALTH_DEV"] = "1"
+        argv.remove("--dev")
+
+    app = QApplication(argv)
+    w = MainWindow()
+    w.show()
+    return app.exec()
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

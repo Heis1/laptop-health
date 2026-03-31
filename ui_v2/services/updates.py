@@ -160,10 +160,10 @@ def get_apt_action_description(action: str) -> str:
     if frontend == "nala":
         mapping = {
             "update": "nala update",
-            "upgrade": "nala upgrade -y",
-            "dist-upgrade": "nala full-upgrade -y",
-            "full-upgrade": "nala full-upgrade -y",
-            "autoremove": "nala autoremove -y",
+            "upgrade": "nala upgrade --assume-yes",
+            "dist-upgrade": "nala full-upgrade --assume-yes",
+            "full-upgrade": "nala full-upgrade --assume-yes",
+            "autoremove": "nala autoremove --assume-yes",
         }
     else:
         mapping = {
@@ -331,22 +331,22 @@ def get_apt_action_argv(action: str) -> list[str]:
             "upgrade": [
                 env_cmd, "DEBIAN_FRONTEND=noninteractive",
                 frontend_cmd,
-                "-y", "upgrade",
+                "upgrade", "--assume-yes",
             ],
             "dist-upgrade": [
                 env_cmd, "DEBIAN_FRONTEND=noninteractive",
                 frontend_cmd,
-                "-y", "full-upgrade",
+                "full-upgrade", "--assume-yes",
             ],
             "full-upgrade": [
                 env_cmd, "DEBIAN_FRONTEND=noninteractive",
                 frontend_cmd,
-                "-y", "full-upgrade",
+                "full-upgrade", "--assume-yes",
             ],
             "autoremove": [
                 env_cmd, "DEBIAN_FRONTEND=noninteractive",
                 frontend_cmd,
-                "-y", "autoremove",
+                "autoremove", "--assume-yes",
             ],
         }
     else:
