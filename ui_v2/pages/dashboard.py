@@ -71,8 +71,9 @@ def _fmt_ram(used_pct: float | None, used_gb: float | None, total_gb: float | No
 
 
 class DashboardPage(QWidget):
-    def __init__(self):
+    def __init__(self, open_probe_page=None):
         super().__init__()
+        self._open_probe_page = open_probe_page
         self.pool = QThreadPool()
         self._workers: list[object] = []
         self._top_cards: list[QWidget] = []
@@ -97,7 +98,9 @@ class DashboardPage(QWidget):
         self._updates_last = None  # cache slow updates
         self._active_probes: list[ProbeConfig] = []
         self._probe_results: dict[str, object] = {}
+        self._pihole_results: dict[str, object] = {}
         self._probe_index = 0
+        self._probe_histories: dict[str, deque[float]] = {}
 
         # cache slow metrics so fast refresh can't wipe them
         self._disk_home_used = None
@@ -155,6 +158,11 @@ class DashboardPage(QWidget):
         probe_nav_l = QHBoxLayout(self.probe_nav)
         probe_nav_l.setContentsMargins(0, 0, 0, 0)
         probe_nav_l.setSpacing(6)
+        self.probe_manage_btn = QPushButton("Manage probes")
+        self.probe_manage_btn.setObjectName("ActionButton")
+        self.probe_manage_btn.clicked.connect(self._manage_probes)
+        probe_nav_l.addWidget(self.probe_manage_btn)
+        probe_nav_l.addStretch(1)
         self.probe_prev_btn = QPushButton("◀")
         self.probe_prev_btn.setObjectName("ActionButton")
         self.probe_prev_btn.clicked.connect(self._prev_probe)
@@ -167,15 +175,20 @@ class DashboardPage(QWidget):
         self.probe_next_btn.clicked.connect(self._next_probe)
         probe_nav_l.addWidget(self.probe_next_btn)
 
-        self.probe = MetricCard("Probe", "—", "—", "blue", right_widget=self.probe_nav)
-        self.probe.big_lbl.setObjectName("CardHuge")
+        self.probe = MetricCard("Probe", "—", "—", "blue", right_widget=self.probe_nav, right_widget_position="below", spark_points=[0.0] * 24)
+        self.probe.big_lbl.setObjectName("CardBig")
+        self.probe.big_lbl.setStyleSheet("padding-top: 2px; padding-bottom: 4px;")
+        self.probe.setProperty("_responsive_width_divisor", 1.18)
         self.probe.sub_lbl.setWordWrap(True)
         apply_responsive_card_fonts(self.probe)
 
-        for w in (self.wakeups, self.updates, self.probe):
+        for w in (self.wakeups, self.updates):
             w.setMinimumHeight(165)
             w.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Expanding)
             w.setMinimumWidth(0)
+        self.probe.setMinimumHeight(182)
+        self.probe.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Expanding)
+        self.probe.setMinimumWidth(0)
         self.net.setMinimumHeight(165)
         self.net.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
         self.net.setMinimumWidth(0)
@@ -271,6 +284,13 @@ class DashboardPage(QWidget):
                     spark_owner.spark.setMaximumHeight(spark_h)
             except Exception:
                 pass
+        try:
+            if getattr(self.probe, "spark", None) is not None:
+                probe_spark_h = max(28, spark_h - 10)
+                self.probe.spark.setMinimumHeight(probe_spark_h)
+                self.probe.spark.setMaximumHeight(probe_spark_h)
+        except Exception:
+            pass
 
     def _on_disk_target_changed(self, target: str, used_pct, free_gb, mount_label: str) -> None:
         self._disk_target = str(target or "root")
@@ -335,6 +355,9 @@ class DashboardPage(QWidget):
 
     def reload_probe_config(self) -> None:
         self._active_probes = enabled_probe_configs()
+        active_ids = {cfg.id for cfg in self._active_probes}
+        self._probe_histories = {probe_id: hist for probe_id, hist in self._probe_histories.items() if probe_id in active_ids}
+        self._pihole_results = {probe_id: res for probe_id, res in self._pihole_results.items() if probe_id in active_ids}
         if self._active_probes:
             self._probe_index %= len(self._active_probes)
         else:
@@ -347,7 +370,14 @@ class DashboardPage(QWidget):
         if not self._active_probes:
             return
         probes = list(self._active_probes)
-        w = Worker(lambda: {cfg.id: fetch_probe_snapshot(cfg) for cfg in probes})
+        def _load_probes():
+            results = {}
+            for cfg in probes:
+                item = {"probe": fetch_probe_snapshot(cfg)}
+                results[cfg.id] = item
+            return results
+
+        w = Worker(_load_probes)
         self._workers.append(w)
 
         def _done_probe(res):
@@ -356,7 +386,16 @@ class DashboardPage(QWidget):
                     for cfg in probes:
                         self._probe_results[cfg.id] = res
                 elif isinstance(res, dict):
-                    self._probe_results.update(res)
+                    for probe_id, item in res.items():
+                        if isinstance(item, dict):
+                            if "probe" in item:
+                                self._probe_results[probe_id] = item.get("probe")
+                            if "pihole" in item:
+                                self._pihole_results[probe_id] = item.get("pihole")
+                            elif "pihole_error" in item:
+                                self._pihole_results[probe_id] = item.get("pihole_error")
+                        else:
+                            self._probe_results[probe_id] = item
                 self._render_probe_card()
             finally:
                 try:
@@ -370,23 +409,36 @@ class DashboardPage(QWidget):
     def _apply_probe(self, cfg: ProbeConfig, payload: dict) -> None:
         metrics = payload.get("metrics") if isinstance(payload.get("metrics"), dict) else {}
         cpu_temp = metric_as_float(metrics.get("cpu_temp_c"))
+        cpu_used = metric_as_float(metrics.get("cpu_usage_percent"))
         mem = metrics.get("memory") if isinstance(metrics.get("memory"), dict) else {}
         loadavg = metrics.get("loadavg") if isinstance(metrics.get("loadavg"), dict) else {}
-        hostname = str(payload.get("hostname") or cfg.name)
         mem_used = metric_as_float(mem.get("used_percent"))
         load_1m = metric_as_float(loadavg.get("1m"))
 
         big = "Online" if cpu_temp is None else f"{cpu_temp:.0f}°C"
-        bits = [hostname]
-        if load_1m is not None:
-            bits.append(f"Load {load_1m:.2f}")
+        bits: list[str] = []
+        if cpu_used is not None:
+            bits.append(f"CPU {cpu_used:.0f}%")
         if mem_used is not None:
             bits.append(f"RAM {mem_used:.0f}%")
-        bits.append(f"Updated {time.strftime('%H:%M:%S')}")
+        pihole_result = self._pihole_results.get(cfg.id)
+        if isinstance(pihole_result, dict):
+            blocked_pct = metric_as_float(pihole_result.get("blocked_percent"))
+            queries = metric_as_float(pihole_result.get("queries_today"))
+            if blocked_pct is not None:
+                bits.append(f"Pi-hole {blocked_pct:.0f}% blocked")
+            elif queries is not None:
+                bits.append(f"Pi-hole {queries:.0f} queries")
 
         accent = "blue"
         if cpu_temp is not None:
             accent = "green" if cpu_temp < 55 else ("orange" if cpu_temp < 75 else "red")
+            history = self._probe_histories.setdefault(cfg.id, deque([0.0] * 24, maxlen=24))
+            history.append(_norm01(cpu_temp, 30.0, 95.0))
+            try:
+                self.probe.set_spark(list(history))
+            except Exception:
+                pass
         self.probe.set_title(cfg.name)
         self.probe.set_values(big, " • ".join(bits), accent)
 
@@ -412,17 +464,33 @@ class DashboardPage(QWidget):
         if isinstance(result, Exception):
             self.probe.set_title(cfg.name)
             self.probe.set_values("Offline", str(result), "red")
+            history = self._probe_histories.get(cfg.id)
+            if history is not None:
+                try:
+                    self.probe.set_spark(list(history))
+                except Exception:
+                    pass
             return
         if isinstance(result, dict):
             self._apply_probe(cfg, result)
             return
         self.probe.set_title(cfg.name)
         self.probe.set_values("Waiting", "Fetching probe status…", "blue")
+        history = self._probe_histories.get(cfg.id)
+        if history is not None:
+            try:
+                self.probe.set_spark(list(history))
+            except Exception:
+                pass
 
     def _advance_probe(self) -> None:
         if len(self._active_probes) > 1:
             self._probe_index = (self._probe_index + 1) % len(self._active_probes)
             self._render_probe_card()
+
+    def _manage_probes(self) -> None:
+        if callable(self._open_probe_page):
+            self._open_probe_page()
 
     def _prev_probe(self) -> None:
         if len(self._active_probes) > 1:

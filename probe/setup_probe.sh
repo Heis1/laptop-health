@@ -33,7 +33,6 @@ save_local_probe_config() {
   local cert_path="$5"
   local config_dir="${HOME}/.config/laptop-health"
   local config_path="${config_dir}/probes.json"
-  local token_path="${config_dir}/probe_tokens.json"
   local probe_id
   probe_id="probe-$(openssl rand -hex 6 2>/dev/null || od -An -N6 -tx1 /dev/urandom | tr -d ' \n')"
 
@@ -55,12 +54,25 @@ save_local_probe_config() {
 EOF
   chmod 600 "${config_path}" || true
 
-  cat > "${token_path}" <<EOF
-{
-  "${probe_id}": "${token}"
-}
-EOF
-  chmod 600 "${token_path}" || true
+  if ! command -v secret-tool >/dev/null 2>&1; then
+    echo
+    echo "Desktop secret storage is required to save the probe token securely."
+    echo "Install libsecret-tools and rerun this helper, or configure the token manually in the app."
+    echo "No local plaintext token file was written."
+    return 1
+  fi
+
+  if ! printf '%s' "${token}" | secret-tool store \
+    --label "Laptop Health pi-probe (${probe_id})" \
+    service laptop-health \
+    account "pi-probe:${probe_id}" >/dev/null 2>&1; then
+    echo
+    echo "Failed to save the probe token into the desktop secret store."
+    echo "No local plaintext token file was written."
+    return 1
+  fi
+
+  return 0
 }
 
 default_tls_host() {
@@ -69,6 +81,8 @@ default_tls_host() {
 }
 
 echo "Laptop Health Pi Probe Setup"
+echo "Target devices must be Linux systems with SSH, sudo, and systemd."
+echo "Recommended targets: Raspberry Pi OS and other Debian-family Linux systems."
 echo
 
 TARGET_HOST="$(prompt_default "Pi hostname or IP" "")"
@@ -79,7 +93,14 @@ fi
 
 TARGET_USER="$(prompt_default "Pi SSH user" "${USER}")"
 PROBE_NAME="$(prompt_default "Probe name" "Raspberry Pi")"
+PROBE_BIND_HOST="$(prompt_default "Probe bind address" "0.0.0.0")"
+PROBE_PORT="$(prompt_default "Probe port" "9821")"
 TLS_MODE_CHOICE="$(prompt_default "TLS mode (self-signed/off)" "self-signed")"
+
+if ! [[ "${PROBE_PORT}" =~ ^[0-9]+$ ]] || (( PROBE_PORT < 1 || PROBE_PORT > 65535 )); then
+  echo "Probe port must be a number between 1 and 65535."
+  exit 1
+fi
 
 case "${TLS_MODE_CHOICE}" in
   self-signed|off)
@@ -115,6 +136,8 @@ echo
 
 export PI_PROBE_USER="${TARGET_USER}"
 export PI_PROBE_TOKEN="${PROBE_TOKEN}"
+export PI_PROBE_HOST="${PROBE_BIND_HOST}"
+export PI_PROBE_PORT="${PROBE_PORT}"
 export PI_PROBE_TLS_MODE="${TLS_MODE_CHOICE}"
 if [[ -n "${TLS_CN}" ]]; then
   export PI_PROBE_TLS_CN="${TLS_CN}"
@@ -123,18 +146,26 @@ fi
 "${SCRIPT_DIR}/deploy_probe.sh" "${TARGET_HOST}"
 
 if [[ "${TLS_MODE_CHOICE}" == "self-signed" ]]; then
-  APP_URL="https://${APP_HOST}:9821/metrics"
+  APP_URL="https://${APP_HOST}:${PROBE_PORT}/metrics"
   APP_CA_CERT="${ROOT_DIR}/probe/probe.crt"
 else
-  APP_URL="http://${APP_HOST}:9821/metrics"
+  APP_URL="http://${APP_HOST}:${PROBE_PORT}/metrics"
   APP_CA_CERT=""
 fi
 
-save_local_probe_config true "${PROBE_NAME}" "${APP_URL}" "${PROBE_TOKEN}" "${APP_CA_CERT}"
+SAVE_LOCAL_OK=0
+if save_local_probe_config true "${PROBE_NAME}" "${APP_URL}" "${PROBE_TOKEN}" "${APP_CA_CERT}"; then
+  SAVE_LOCAL_OK=1
+fi
 
 echo
-echo "Saved probe settings locally for the app."
-echo "Open Probe settings to review if needed."
+if [[ "${SAVE_LOCAL_OK}" == "1" ]]; then
+  echo "Saved probe settings locally for the app."
+  echo "Open Probe settings to review if needed."
+else
+  echo "Probe deployed on the device, but local token save was skipped."
+  echo "Open Probe settings in the app and paste the probe token manually."
+fi
 if [[ "${TLS_MODE_CHOICE}" == "self-signed" ]]; then
   echo "URL: ${APP_URL}"
   echo "CA certificate: ${APP_CA_CERT}"

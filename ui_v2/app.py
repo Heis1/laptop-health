@@ -6,7 +6,7 @@ import sys
 if __package__ in (None, ""):
     sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from PySide6.QtCore import Qt
+from PySide6.QtCore import Qt, QThreadPool, QTimer
 from PySide6.QtGui import QFont
 from PySide6.QtWidgets import (
     QApplication,
@@ -71,12 +71,12 @@ class MainWindow(QMainWindow):
         t.setSpacing(10)
         t.addStretch(1)
 
-       #Export Button configuration
+        # Header actions
         self.btn_export = QToolButton()
         self.btn_export.setObjectName("TopBtn")
         self.btn_export.setIcon(self.style().standardIcon(QStyle.SP_DialogSaveButton))
-        self.btn_export.setText("Export")
-        self.btn_export.setToolTip("Export options")
+        self.btn_export.setText("Actions")
+        self.btn_export.setToolTip("View export actions")
         self.btn_export.setToolButtonStyle(Qt.ToolButtonTextBesideIcon)
         self.btn_export.setPopupMode(QToolButton.InstantPopup)
 
@@ -88,15 +88,8 @@ class MainWindow(QMainWindow):
 
         self.btn_export.setMenu(export_menu)
         t.addWidget(self.btn_export)
-
-        self.btn_probe = QToolButton()
-        self.btn_probe.setObjectName("TopBtn")
-        self.btn_probe.setText("Probe")
-        self.btn_probe.setToolTip("Configure Raspberry Pi probe")
-        self.btn_probe.clicked.connect(self._open_probe_settings)
-        t.addWidget(self.btn_probe)
-
-       #Exit Button configuration
+        
+        # Exit button
 
         exit_btn = QToolButton()
         exit_btn.setObjectName("ExitBtn")
@@ -115,7 +108,7 @@ class MainWindow(QMainWindow):
 
         self.stack = QStackedWidget()
         self.pages = {
-            "dashboard": DashboardPage(),
+            "dashboard": DashboardPage(lambda: self._go("remote")),
             "power": PowerPage(),
             "storage": StoragePage(),
             "network": NetworkPage(),
@@ -141,8 +134,6 @@ class MainWindow(QMainWindow):
         self.setStyleSheet(qss())
 
     def closeEvent(self, event):
-        from PySide6.QtCore import QThreadPool
-
         should_accept = False
         try:
             pages = getattr(self, "pages", {}) or {}
@@ -154,21 +145,41 @@ class MainWindow(QMainWindow):
                 except Exception:
                     return
 
-            # 1) Stop timers first
+            # 1) Stop page and child-widget timers first
             for page in pages.values():
-                t = getattr(page, "timer", None)
-                if t is not None:
-                    try:
-                        t.stop()
-                    except Exception:
-                        pass
+                try:
+                    for timer in page.findChildren(QTimer):
+                        try:
+                            timer.stop()
+                        except Exception:
+                            pass
+                except Exception:
+                    pass
 
-            # 2) Stop ALL queued global workers + wait briefly
+                for attr in ("timer", "timer_fast", "timer_slow", "timer_probe", "timer_probe_cycle", "scan_feedback_timer"):
+                    t = getattr(page, attr, None)
+                    if t is not None:
+                        try:
+                            t.stop()
+                        except Exception:
+                            pass
+
+                # 2) Clear page-local thread pools
+                for obj in [page, *page.findChildren(QWidget)]:
+                    pool = getattr(obj, "pool", None)
+                    if isinstance(pool, QThreadPool):
+                        try:
+                            pool.clear()
+                            pool.waitForDone(250)
+                        except Exception:
+                            pass
+
+            # 3) Stop ALL queued global workers + wait briefly
             pool = QThreadPool.globalInstance()
             pool.clear()
             pool.waitForDone(1500)
 
-            # 3) Clear worker refs after pool drained
+            # 4) Clear worker refs after pools drained
             for page in pages.values():
                 if hasattr(page, "_workers"):
                     try:

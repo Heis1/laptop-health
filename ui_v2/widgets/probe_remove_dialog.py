@@ -1,8 +1,11 @@
 from __future__ import annotations
 
+import base64
+import hashlib
 import os
 import re
 import shlex
+import socket
 
 from PySide6.QtCore import QThread, Qt, Signal, QTimer
 from PySide6.QtGui import QTextCursor
@@ -19,6 +22,7 @@ from PySide6.QtWidgets import (
 )
 
 from ui_v2.services.probe import ProbeConfig, remove_probe_config
+from ui_v2.widgets.prompt_dialog import PromptDialog
 
 
 class _RemoveThread(QThread):
@@ -48,18 +52,20 @@ class _RemoveThread(QThread):
 
         client = paramiko.SSHClient()
         client.load_system_host_keys()
-        client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+        client.set_missing_host_key_policy(paramiko.RejectPolicy())
 
         try:
             self.output.emit(f"Removing probe from {self.user}@{self.host}\n")
-            client.connect(
-                hostname=self.host,
-                username=self.user,
-                password=self.ssh_password,
-                look_for_keys=False,
-                allow_agent=False,
-                timeout=15,
-            )
+            connect_kwargs = {
+                "hostname": self.host,
+                "username": self.user,
+                "timeout": 15,
+                "look_for_keys": True,
+                "allow_agent": True,
+            }
+            if self.ssh_password:
+                connect_kwargs["password"] = self.ssh_password
+            client.connect(**connect_kwargs)
 
             self.output.emit("Stopping and disabling probe service\n")
             self._run_remote(client, f"systemctl disable --now {service_name} >/dev/null 2>&1 || true", sudo=True)
@@ -82,6 +88,22 @@ class _RemoveThread(QThread):
 
             self.output.emit("\nRemote probe uninstall complete\n")
             self.done.emit(0)
+        except paramiko.BadHostKeyException as exc:
+            self.output.emit(
+                "\nRemove failed: SSH host key verification failed.\n"
+                f"Host: {self.host}\n"
+                f"Expected key type: {exc.expected_key.get_name()}\n"
+                "Check your known_hosts entry for this device before retrying.\n"
+            )
+            self.done.emit(1)
+        except paramiko.SSHException as exc:
+            self.output.emit(
+                "\nRemove failed: SSH host could not be verified.\n"
+                f"Host: {self.host}\n"
+                "Add the device to ~/.ssh/known_hosts first, then retry.\n"
+                f"Details: {exc}\n"
+            )
+            self.done.emit(1)
         except Exception as exc:
             self.output.emit(f"\nRemove failed: {exc}\n")
             self.done.emit(1)
@@ -156,7 +178,10 @@ class ProbeRemoveDialog(QDialog):
         hdr.addWidget(close_btn)
         lay.addLayout(hdr)
 
-        subtitle = QLabel("This removes the probe service from the monitored device and then removes the local app entry.")
+        subtitle = QLabel(
+            "This removes the probe service from the monitored device and then removes the local app entry. "
+            "If this is the first time you have connected to the device, Laptop Health will ask you to trust its SSH host key."
+        )
         subtitle.setObjectName("RemoveSubtitle")
         subtitle.setWordWrap(True)
         lay.addWidget(subtitle)
@@ -187,6 +212,7 @@ class ProbeRemoveDialog(QDialog):
 
         self.ssh_password_input = QLineEdit("")
         self.ssh_password_input.setEchoMode(QLineEdit.Password)
+        self.ssh_password_input.setPlaceholderText("Leave blank to use SSH key or agent if available")
         form.addRow("SSH password", self.ssh_password_input)
 
         self.sudo_password_input = QLineEdit("")
@@ -349,6 +375,10 @@ class ProbeRemoveDialog(QDialog):
         if not host or not user:
             self._append("Host and SSH user are required.\n")
             return
+        if not _ensure_host_trusted(self, host):
+            self._append("SSH host trust was not established. Remove cancelled.\n")
+            self._set_status("Blocked", "Trust the device SSH host key before running the uninstall.", "orange")
+            return
         self.start_btn.setEnabled(False)
         self.cancel_btn.setEnabled(False)
         self.log.clear()
@@ -388,3 +418,112 @@ class ProbeRemoveDialog(QDialog):
 def _extract_host(url: str) -> str:
     m = re.match(r"^https?://([^/:]+)", url or "")
     return m.group(1) if m else ""
+
+
+def _ssh_fingerprint_sha256(key) -> str:
+    digest = hashlib.sha256(key.asbytes()).digest()
+    return "SHA256:" + base64.b64encode(digest).decode("ascii").rstrip("=")
+
+
+def _known_hosts_path() -> str:
+    return os.path.join(os.path.expanduser("~"), ".ssh", "known_hosts")
+
+
+def _host_is_known(host: str) -> bool:
+    try:
+        import paramiko
+    except Exception:
+        return False
+    client = paramiko.SSHClient()
+    client.load_system_host_keys()
+    return client.get_host_keys().lookup(host) is not None
+
+
+def _fetch_remote_host_key(host: str, port: int = 22):
+    import paramiko
+
+    sock = socket.create_connection((host, port), timeout=8)
+    transport = paramiko.Transport(sock)
+    try:
+        transport.start_client(timeout=8)
+        return transport.get_remote_server_key()
+    finally:
+        transport.close()
+
+
+def _store_host_key(host: str, key) -> None:
+    import paramiko
+
+    ssh_dir = os.path.join(os.path.expanduser("~"), ".ssh")
+    os.makedirs(ssh_dir, mode=0o700, exist_ok=True)
+    try:
+        os.chmod(ssh_dir, 0o700)
+    except OSError:
+        pass
+
+    path = _known_hosts_path()
+    host_keys = paramiko.HostKeys()
+    if os.path.exists(path):
+        host_keys.load(path)
+    host_keys.add(host, key.get_name(), key)
+    host_keys.save(path)
+    try:
+        os.chmod(path, 0o600)
+    except OSError:
+        pass
+
+
+def _ensure_host_trusted(parent, host: str) -> bool:
+    if _host_is_known(host):
+        return True
+
+    try:
+        key = _fetch_remote_host_key(host)
+    except Exception as exc:
+        PromptDialog(
+            parent,
+            "SSH Host Verification Failed",
+            (
+                f"Laptop Health could not fetch the SSH host key for {host}.\n\n"
+                f"Details: {exc}\n\n"
+                "Connect to the device once with ssh or fix the network issue, then retry."
+            ),
+            accent="red",
+            ok_text="Close",
+            cancel_text="Cancel",
+        ).exec()
+        return False
+
+    prompt = PromptDialog(
+        parent,
+        "Trust SSH Host Key",
+        (
+            f"This device is not yet trusted in SSH known_hosts.\n\n"
+            f"Host: {host}\n"
+            f"Key type: {key.get_name()}\n"
+            f"Fingerprint: {_ssh_fingerprint_sha256(key)}\n\n"
+            "Only continue if this fingerprint matches the device you expect to manage."
+        ),
+        accent="blue",
+        ok_text="Trust and Continue",
+        cancel_text="Cancel",
+    )
+    if prompt.exec() != QDialog.Accepted:
+        return False
+
+    try:
+        _store_host_key(host, key)
+    except Exception as exc:
+        PromptDialog(
+            parent,
+            "Failed To Save SSH Trust",
+            (
+                f"Laptop Health could not save the SSH host key for {host} into known_hosts.\n\n"
+                f"Details: {exc}"
+            ),
+            accent="red",
+            ok_text="Close",
+            cancel_text="Cancel",
+        ).exec()
+        return False
+    return True

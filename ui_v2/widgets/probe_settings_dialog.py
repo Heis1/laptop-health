@@ -14,7 +14,34 @@ from PySide6.QtWidgets import (
     QVBoxLayout,
 )
 
-from ui_v2.services.probe import ProbeConfig
+from ui_v2.services.probe import ProbeConfig, secret_store_required
+
+
+def _pihole_host_from_url(url: str) -> str:
+    value = (url or "").strip()
+    if not value:
+        return ""
+    for prefix in ("http://", "https://"):
+        if value.startswith(prefix):
+            value = value[len(prefix):]
+            break
+    value = value.split("/", 1)[0]
+    return value
+
+
+def _pihole_url_from_host(host: str) -> str:
+    value = (host or "").strip().rstrip("/")
+    if not value:
+        return ""
+    if value.startswith(("http://", "https://")):
+        base = value.rstrip("/")
+    else:
+        base = f"http://{value}"
+    if base.endswith("/admin"):
+        return f"{base}/api.php"
+    if "/admin/api.php" in base:
+        return base
+    return f"{base}/admin/api.php"
 
 
 class ProbeSettingsDialog(QDialog):
@@ -22,6 +49,7 @@ class ProbeSettingsDialog(QDialog):
         super().__init__(parent)
         self._probe_id = config.id
         self._existing_token = config.token
+        self._existing_pihole_password = config.pihole_password
         self.setWindowTitle("Probe Settings")
         self.setModal(True)
         self.setWindowFlags(Qt.Dialog | Qt.FramelessWindowHint)
@@ -74,6 +102,12 @@ class ProbeSettingsDialog(QDialog):
         subtitle.setWordWrap(True)
         lay.addWidget(subtitle)
 
+        if not secret_store_required():
+            warning = QLabel("Desktop secret storage is required. Install `secret-tool` / libsecret support before saving probe or Pi-hole credentials.")
+            warning.setObjectName("ProbeSubtitle")
+            warning.setWordWrap(True)
+            lay.addWidget(warning)
+
         form = QFormLayout()
         form.setSpacing(10)
         form.setLabelAlignment(Qt.AlignLeft | Qt.AlignVCenter)
@@ -92,7 +126,7 @@ class ProbeSettingsDialog(QDialog):
 
         self.token = QLineEdit("")
         self.token.setEchoMode(QLineEdit.Password)
-        self.token.setPlaceholderText("Stored securely. Enable replacement to enter a new token.")
+        self.token.setPlaceholderText("Stored in the desktop secret store. Enable replacement to enter a new token.")
         self.token.setEnabled(False)
         form.addRow("Bearer token", self.token)
 
@@ -111,6 +145,36 @@ class ProbeSettingsDialog(QDialog):
         self.ca_cert_path.setPlaceholderText("Optional local CA / self-signed cert path")
         form.addRow("CA certificate", self.ca_cert_path)
 
+        self.pihole_enabled = QCheckBox("Enable Pi-hole stats")
+        self.pihole_enabled.setChecked(config.pihole_enabled)
+        form.addRow("", self.pihole_enabled)
+
+        self.pihole_host = QLineEdit(_pihole_host_from_url(config.pihole_url))
+        self.pihole_host.setPlaceholderText("192.0.2.51")
+        form.addRow("Pi-hole host or IP", self.pihole_host)
+
+        self.pihole_example = QLabel("Example: 192.0.2.51 → http://192.0.2.51/admin/api.php")
+        self.pihole_example.setObjectName("ProbeSubtitle")
+        self.pihole_example.setWordWrap(True)
+        form.addRow("", self.pihole_example)
+
+        self.pihole_password = QLineEdit("")
+        self.pihole_password.setEchoMode(QLineEdit.Password)
+        self.pihole_password.setPlaceholderText("Stored in the desktop secret store. Enable replacement to enter a new Pi-hole password.")
+        self.pihole_password.setEnabled(False)
+        form.addRow("Pi-hole password", self.pihole_password)
+
+        self.replace_pihole_password = QCheckBox("Replace Pi-hole password")
+        self.replace_pihole_password.toggled.connect(self._toggle_replace_pihole_password)
+        form.addRow("", self.replace_pihole_password)
+
+        self.show_pihole_password = QCheckBox("Show replacement Pi-hole password")
+        self.show_pihole_password.setEnabled(False)
+        self.show_pihole_password.toggled.connect(
+            lambda checked: self.pihole_password.setEchoMode(QLineEdit.Normal if checked else QLineEdit.Password)
+        )
+        form.addRow("", self.show_pihole_password)
+
         lay.addLayout(form)
 
         buttons = QDialogButtonBox(QDialogButtonBox.Save | QDialogButtonBox.Cancel)
@@ -127,7 +191,13 @@ class ProbeSettingsDialog(QDialog):
         scrim_lay.addStretch(1)
         root.addWidget(scrim)
 
-        scrim.mousePressEvent = lambda e: self.reject()
+        def _scrim_click(event) -> None:
+            if not card.geometry().contains(event.position().toPoint()):
+                self.reject()
+                return
+            event.accept()
+
+        scrim.mousePressEvent = _scrim_click
 
         self.setStyleSheet(
             """
@@ -209,6 +279,13 @@ class ProbeSettingsDialog(QDialog):
             self.token.clear()
             self.show_token.setChecked(False)
 
+    def _toggle_replace_pihole_password(self, checked: bool) -> None:
+        self.pihole_password.setEnabled(checked)
+        self.show_pihole_password.setEnabled(checked)
+        if not checked:
+            self.pihole_password.clear()
+            self.show_pihole_password.setChecked(False)
+
     def keyPressEvent(self, event) -> None:
         if event.key() == Qt.Key_Escape:
             self.reject()
@@ -223,4 +300,7 @@ class ProbeSettingsDialog(QDialog):
             url=self.url.text().strip(),
             token=self.token.text().strip() if self.replace_token.isChecked() else self._existing_token,
             ca_cert_path=self.ca_cert_path.text().strip(),
+            pihole_enabled=self.pihole_enabled.isChecked(),
+            pihole_url=_pihole_url_from_host(self.pihole_host.text().strip()) if self.pihole_enabled.isChecked() else "",
+            pihole_password=self.pihole_password.text().strip() if self.replace_pihole_password.isChecked() else self._existing_pihole_password,
         )

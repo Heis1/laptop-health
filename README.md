@@ -154,6 +154,8 @@ For the new UI preview:
 
 The repository includes a headless probe at `probe/pi_probe.py`.
 
+Probe installs target Linux devices, especially Raspberry Pi OS and other Debian-family systems with `ssh`, `sudo`, and `systemd` available.
+
 This feature is currently under active development on `feature/pi-probe-integration`.
 
 Current in-progress scope:
@@ -161,7 +163,9 @@ Current in-progress scope:
 - guided in-app install and uninstall flow for Raspberry Pi probes
 - multi-probe support in the desktop app
 - customizable probe names
+- customizable probe ports
 - rotating probe card on the overview dashboard
+- optional Pi-hole summary attachment per probe
 - hardened token handling and TLS verification
 
 Quick deploy from your laptop:
@@ -174,6 +178,8 @@ That interactive script prompts for:
 
 - the Pi hostname or IP
 - the Pi SSH user
+- the probe bind address
+- the probe port
 - TLS mode
 - the HTTPS hostname to put into the certificate
 - the probe token, or it can generate one for you
@@ -192,12 +198,13 @@ Then in the app:
 
 1. Open `Probe/s`
 2. Click `Add Probe`
-3. Enter the Pi IP or hostname, SSH user, TLS mode, and token choice
-4. Wait for the in-app installer to finish
-5. Confirm the new probe appears on `Probe/s`
-6. Confirm the overview dashboard shows the probe card when at least one probe is enabled
-7. Add a second probe entry or rename the current one to test multi-probe switching
-8. Use `Remove Current` to confirm the local entry disappears and the remote uninstall runs
+3. Enter the Pi IP or hostname, a friendly probe name, the SSH user, and token choice
+4. Leave the probe port at `9821` unless you need a different port for that device
+5. Wait for the in-app installer to finish
+6. Confirm the new probe appears on `Probe/s`
+7. Confirm the overview dashboard shows the probe card when at least one probe is enabled
+8. Add a second probe entry or rename the current one to test multi-probe switching
+9. Use `Remove Current` to confirm the local entry disappears and the remote uninstall runs
 
 Recommended verification:
 
@@ -205,12 +212,31 @@ Recommended verification:
 - confirm the app accepts the CA certificate at `probe/probe.crt` when using self-signed TLS
 - confirm the overview card hides completely when no probes are enabled
 - confirm manual prev/next switching and automatic rotation both work when multiple probes are enabled
+- if the probe host runs Pi-hole, enable Pi-hole stats in `Probe settings` and confirm `Probe/s` shows Pi-hole status, activity, top clients, and top blocked domains
 
 If you want the non-interactive version, use:
 
 ```bash
 export PI_PROBE_USER=pi
 export PI_PROBE_TOKEN=choose-a-long-random-secret
+bash ./probe/deploy_probe.sh raspberrypi.local
+```
+
+To use a different port:
+
+```bash
+export PI_PROBE_USER=pi
+export PI_PROBE_TOKEN=choose-a-long-random-secret
+export PI_PROBE_PORT=9822
+bash ./probe/deploy_probe.sh raspberrypi.local
+```
+
+To bind the probe to a specific interface instead of all interfaces:
+
+```bash
+export PI_PROBE_USER=pi
+export PI_PROBE_TOKEN=choose-a-long-random-secret
+export PI_PROBE_HOST=192.0.2.51
 bash ./probe/deploy_probe.sh raspberrypi.local
 ```
 
@@ -241,6 +267,8 @@ Then in Laptop Health, use `Probe settings` and enter:
 - URL: `http://raspberrypi.local:9821/metrics`
 - Token: the same `PI_PROBE_TOKEN`
 
+If you changed the port, use that port in the URL instead of `9821`.
+
 ### HTTPS / TLS
 
 The probe can serve HTTPS directly.
@@ -260,6 +288,8 @@ Then point Laptop Health at:
 - Token: the same `PI_PROBE_TOKEN`
 - CA certificate: leave blank if the cert chains to a normal trusted CA, or set it to the local path of the Pi certificate if you are using a self-signed cert, for example `probe/probe.crt`
 
+If you changed the port, use that port in the URL instead of `9821`.
+
 This means the dashboard verifies the probe certificate instead of blindly trusting the connection.
 
 The deployment script supports:
@@ -271,7 +301,9 @@ PI_PROBE_USER=pi PI_PROBE_TOKEN=choose-a-long-random-secret PI_PROBE_TLS_MODE=pr
 ```
 
 The desktop app stores non-secret probe settings in `~/.config/laptop-health/probes.json`.
-Probe tokens are stored separately and written with restrictive permissions. On Linux desktops with `secret-tool` available, the app will also use the local secret store.
+Probe and Pi-hole credentials are stored in the desktop secret store. `secret-tool` / libsecret support is required for saving those credentials from the app or the interactive shell helper. The helper no longer writes a local plaintext token file.
+
+The in-app install/remove flow now uses explicit SSH host-key trust on first connect. Laptop Health shows the device fingerprint, asks for confirmation, and then writes the trusted key to your SSH `known_hosts` file. Changed or mismatched host keys are still rejected.
 
 ---
 

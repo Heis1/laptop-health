@@ -8,11 +8,27 @@ import platform
 import shutil
 import socket
 import ssl
+import threading
 import time
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Any
 from urllib.parse import urlparse
+
+
+REQUEST_WINDOW_S = env_int("PI_PROBE_REQUEST_WINDOW_S", 60)
+MAX_REQUESTS_PER_WINDOW = env_int("PI_PROBE_MAX_REQUESTS_PER_WINDOW", 60)
+AUTH_FAIL_WINDOW_S = env_int("PI_PROBE_AUTH_FAIL_WINDOW_S", 300)
+MAX_AUTH_FAILS_PER_WINDOW = env_int("PI_PROBE_MAX_AUTH_FAILS_PER_WINDOW", 5)
+AUTH_LOCKOUT_S = env_int("PI_PROBE_AUTH_LOCKOUT_S", 300)
+
+_RATE_LOCK = threading.Lock()
+_REQUEST_TIMES: dict[str, list[float]] = {}
+_AUTH_FAIL_TIMES: dict[str, list[float]] = {}
+_AUTH_LOCKED_UNTIL: dict[str, float] = {}
+_CPU_SAMPLE_LOCK = threading.Lock()
+_CPU_LAST_TOTAL: int | None = None
+_CPU_LAST_IDLE: int | None = None
 
 
 def env_int(name: str, default: int) -> int:
@@ -30,10 +46,17 @@ def load_expected_token() -> str:
     if token_file:
         try:
             with open(token_file, "r", encoding="utf-8") as handle:
-                return handle.read().strip()
+                token = handle.read().strip()
         except OSError as exc:
             raise RuntimeError(f"Unable to read PI_PROBE_TOKEN_FILE: {exc}") from exc
-    return (os.getenv("PI_PROBE_TOKEN") or "").strip()
+        if not token:
+            raise RuntimeError("PI_PROBE_TOKEN_FILE is configured but empty")
+        return token
+
+    token = (os.getenv("PI_PROBE_TOKEN") or "").strip()
+    if not token:
+        raise RuntimeError("Probe authentication token is required")
+    return token
 
 
 def read_cpu_temp_c() -> float | None:
@@ -58,6 +81,45 @@ def read_loadavg() -> dict[str, float] | None:
     except OSError:
         return None
     return {"1m": round(one, 2), "5m": round(five, 2), "15m": round(fifteen, 2)}
+
+
+def read_cpu_usage_percent() -> float | None:
+    global _CPU_LAST_TOTAL, _CPU_LAST_IDLE
+
+    try:
+        first = open("/proc/stat", "r", encoding="utf-8").readline().strip()
+    except OSError:
+        return None
+    if not first.startswith("cpu "):
+        return None
+
+    parts = first.split()[1:]
+    try:
+        values = [int(part) for part in parts]
+    except ValueError:
+        return None
+    if len(values) < 4:
+        return None
+
+    idle = values[3] + (values[4] if len(values) > 4 else 0)
+    total = sum(values)
+
+    with _CPU_SAMPLE_LOCK:
+        prev_total = _CPU_LAST_TOTAL
+        prev_idle = _CPU_LAST_IDLE
+        _CPU_LAST_TOTAL = total
+        _CPU_LAST_IDLE = idle
+
+    if prev_total is None or prev_idle is None:
+        return None
+
+    total_delta = total - prev_total
+    idle_delta = idle - prev_idle
+    if total_delta <= 0:
+        return None
+
+    busy_pct = (1.0 - (idle_delta / total_delta)) * 100.0
+    return round(max(0.0, min(100.0, busy_pct)), 1)
 
 
 def read_meminfo() -> dict[str, float] | None:
@@ -160,6 +222,7 @@ def collect_snapshot() -> dict[str, Any]:
         },
         "metrics": {
             "cpu_temp_c": read_cpu_temp_c(),
+            "cpu_usage_percent": read_cpu_usage_percent(),
             "loadavg": read_loadavg(),
             "memory": read_meminfo(),
             "disk_root": read_disk_usage("/"),
@@ -167,6 +230,53 @@ def collect_snapshot() -> dict[str, Any]:
             "network": read_network_counters(),
         },
     }
+
+
+def _client_ip(handler: BaseHTTPRequestHandler) -> str:
+    return str(handler.client_address[0] if handler.client_address else "unknown")
+
+
+def _trim_recent(values: list[float], now: float, window_s: int) -> list[float]:
+    return [value for value in values if (now - value) < window_s]
+
+
+def allow_request(client_ip: str) -> bool:
+    now = time.time()
+    with _RATE_LOCK:
+        recent = _trim_recent(_REQUEST_TIMES.get(client_ip, []), now, REQUEST_WINDOW_S)
+        if len(recent) >= MAX_REQUESTS_PER_WINDOW:
+            _REQUEST_TIMES[client_ip] = recent
+            return False
+        recent.append(now)
+        _REQUEST_TIMES[client_ip] = recent
+        return True
+
+
+def auth_locked_out(client_ip: str) -> bool:
+    now = time.time()
+    with _RATE_LOCK:
+        locked_until = _AUTH_LOCKED_UNTIL.get(client_ip, 0.0)
+        if locked_until > now:
+            return True
+        if locked_until:
+            _AUTH_LOCKED_UNTIL.pop(client_ip, None)
+        return False
+
+
+def record_auth_failure(client_ip: str) -> None:
+    now = time.time()
+    with _RATE_LOCK:
+        recent = _trim_recent(_AUTH_FAIL_TIMES.get(client_ip, []), now, AUTH_FAIL_WINDOW_S)
+        recent.append(now)
+        _AUTH_FAIL_TIMES[client_ip] = recent
+        if len(recent) >= MAX_AUTH_FAILS_PER_WINDOW:
+            _AUTH_LOCKED_UNTIL[client_ip] = now + AUTH_LOCKOUT_S
+
+
+def record_auth_success(client_ip: str) -> None:
+    with _RATE_LOCK:
+        _AUTH_FAIL_TIMES.pop(client_ip, None)
+        _AUTH_LOCKED_UNTIL.pop(client_ip, None)
 
 
 class ProbeHandler(BaseHTTPRequestHandler):
@@ -179,9 +289,18 @@ class ProbeHandler(BaseHTTPRequestHandler):
             return
 
         if parsed.path == "/metrics":
+            client_ip = _client_ip(self)
+            if auth_locked_out(client_ip):
+                self.send_json(HTTPStatus.TOO_MANY_REQUESTS, {"error": "too_many_attempts"})
+                return
+            if not allow_request(client_ip):
+                self.send_json(HTTPStatus.TOO_MANY_REQUESTS, {"error": "rate_limited"})
+                return
             if not self.authorized(parsed):
+                record_auth_failure(client_ip)
                 self.send_json(HTTPStatus.UNAUTHORIZED, {"error": "unauthorized"})
                 return
+            record_auth_success(client_ip)
             self.send_json(HTTPStatus.OK, collect_snapshot())
             return
 
@@ -192,8 +311,6 @@ class ProbeHandler(BaseHTTPRequestHandler):
 
     def authorized(self, parsed) -> bool:
         expected = load_expected_token()
-        if not expected:
-            return True
 
         auth_header = self.headers.get("Authorization", "")
         if not auth_header.startswith("Bearer "):
@@ -218,6 +335,7 @@ def main() -> None:
     tls_cert = (os.getenv("PI_PROBE_TLS_CERT") or "").strip()
     tls_key = (os.getenv("PI_PROBE_TLS_KEY") or "").strip()
     load_expected_token()
+    read_cpu_usage_percent()
     server = ThreadingHTTPServer((host, port), ProbeHandler)
     scheme = "http"
 

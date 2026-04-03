@@ -1,13 +1,16 @@
 from __future__ import annotations
 
+import base64
 import copy
+import hashlib
 import os
 import re
 import shlex
+import socket
 import uuid
 
 from PySide6.QtCore import QThread, Qt, Signal, QTimer
-from PySide6.QtGui import QTextCursor
+from PySide6.QtGui import QGuiApplication, QTextCursor
 from PySide6.QtWidgets import (
     QCheckBox,
     QDialog,
@@ -22,7 +25,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from ui_v2.services.probe import ProbeConfig, new_probe_config, upsert_probe_config
+from ui_v2.services.probe import ProbeConfig, new_probe_config, secret_store_required, upsert_probe_config
 from ui_v2.widgets.prompt_dialog import PromptDialog
 
 
@@ -30,10 +33,12 @@ class _DeployThread(QThread):
     output = Signal(str)
     done = Signal(int)
 
-    def __init__(self, *, host: str, user: str, tls_mode: str, tls_cn: str, token: str, ssh_password: str, sudo_password: str):
+    def __init__(self, *, host: str, user: str, bind_host: str, port: int, tls_mode: str, tls_cn: str, token: str, ssh_password: str, sudo_password: str):
         super().__init__()
         self.host = host
         self.user = user
+        self.bind_host = bind_host
+        self.port = port
         self.tls_mode = tls_mode
         self.tls_cn = tls_cn
         self.token = token
@@ -63,18 +68,20 @@ class _DeployThread(QThread):
 
         client = paramiko.SSHClient()
         client.load_system_host_keys()
-        client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+        client.set_missing_host_key_policy(paramiko.RejectPolicy())
 
         try:
             self.output.emit(f"Installing probe on {self.user}@{self.host}\n")
-            client.connect(
-                hostname=self.host,
-                username=self.user,
-                password=self.ssh_password,
-                look_for_keys=False,
-                allow_agent=False,
-                timeout=15,
-            )
+            connect_kwargs = {
+                "hostname": self.host,
+                "username": self.user,
+                "timeout": 15,
+                "look_for_keys": True,
+                "allow_agent": True,
+            }
+            if self.ssh_password:
+                connect_kwargs["password"] = self.ssh_password
+            client.connect(**connect_kwargs)
 
             self._run_remote(client, f"mkdir -p {shlex.quote(install_dir)} {shlex.quote(remote_cert_dir)} /etc/systemd/system/{service_name}.service.d", sudo=True)
 
@@ -116,7 +123,7 @@ class _DeployThread(QThread):
 
             self.output.emit("Writing probe token on the Pi\n")
             token_content = f"{self.token}\n"
-            env_lines = [f"PI_PROBE_PORT=9821"]
+            env_lines = [f"PI_PROBE_HOST={self.bind_host}", f"PI_PROBE_PORT={self.port}"]
             if self.tls_mode == "self-signed":
                 env_lines.append(f"PI_PROBE_TLS_CERT={remote_cert_path}")
                 env_lines.append(f"PI_PROBE_TLS_KEY={remote_key_path}")
@@ -137,14 +144,14 @@ class _DeployThread(QThread):
             self._run_remote(client, f"systemctl daemon-reload && systemctl enable --now {service_name} && systemctl restart {service_name}", sudo=True)
 
             if self.tls_mode == "off":
-                verify = f"curl -fsS -H {shlex.quote('Authorization: Bearer ' + self.token)} http://localhost:9821/metrics >/dev/null 2>/dev/null"
-                dashboard_url = f"http://{self.host}:9821/metrics"
+                verify = f"curl -fsS -H {shlex.quote('Authorization: Bearer ' + self.token)} http://localhost:{self.port}/metrics >/dev/null 2>/dev/null"
+                dashboard_url = f"http://{self.host}:{self.port}/metrics"
             else:
                 if re.match(r'^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$', self.tls_cn):
-                    verify = f"curl -fsS --cacert {shlex.quote(remote_cert_path)} -H {shlex.quote('Authorization: Bearer ' + self.token)} https://{self.tls_cn}:9821/metrics >/dev/null 2>/dev/null"
+                    verify = f"curl -fsS --cacert {shlex.quote(remote_cert_path)} -H {shlex.quote('Authorization: Bearer ' + self.token)} https://{self.tls_cn}:{self.port}/metrics >/dev/null 2>/dev/null"
                 else:
-                    verify = f"curl -fsS --cacert {shlex.quote(remote_cert_path)} --resolve {shlex.quote(f'{self.tls_cn}:9821:127.0.0.1')} -H {shlex.quote('Authorization: Bearer ' + self.token)} https://{self.tls_cn}:9821/metrics >/dev/null 2>/dev/null"
-                dashboard_url = f"https://{self.tls_cn}:9821/metrics"
+                    verify = f"curl -fsS --cacert {shlex.quote(remote_cert_path)} --resolve {shlex.quote(f'{self.tls_cn}:{self.port}:127.0.0.1')} -H {shlex.quote('Authorization: Bearer ' + self.token)} https://{self.tls_cn}:{self.port}/metrics >/dev/null 2>/dev/null"
+                dashboard_url = f"https://{self.tls_cn}:{self.port}/metrics"
 
             self.output.emit("Verifying probe\n")
             rc, _, _ = self._run_remote(
@@ -170,6 +177,22 @@ class _DeployThread(QThread):
             self.output.emit("Systemd status:\n")
             self.output.emit(out + err)
             self.done.emit(0)
+        except paramiko.BadHostKeyException as exc:
+            self.output.emit(
+                "\nInstall failed: SSH host key verification failed.\n"
+                f"Host: {self.host}\n"
+                f"Expected key type: {exc.expected_key.get_name()}\n"
+                "Check your known_hosts entry for this device before retrying.\n"
+            )
+            self.done.emit(1)
+        except paramiko.SSHException as exc:
+            self.output.emit(
+                "\nInstall failed: SSH host could not be verified.\n"
+                f"Host: {self.host}\n"
+                "Add the device to ~/.ssh/known_hosts first, then retry.\n"
+                f"Details: {exc}\n"
+            )
+            self.done.emit(1)
         except Exception as exc:
             self.output.emit(f"\nInstall failed: {exc}\n")
             self.done.emit(1)
@@ -230,6 +253,7 @@ class ProbeDeployDialog(QDialog):
         self._saved_url = ""
         self._saved_cert = ""
         self._auto_close_pending = False
+        self._last_failure_summary = ""
 
         self.setModal(True)
         self.setWindowFlags(Qt.Dialog | Qt.FramelessWindowHint)
@@ -275,7 +299,10 @@ class ProbeDeployDialog(QDialog):
         hdr.addWidget(close_btn)
         lay.addLayout(hdr)
 
-        subtitle = QLabel("Run the probe deployment inside the app. Passwords are used only for this session.")
+        subtitle = QLabel(
+            "Run the probe deployment inside the app. The target device must be a Linux system with SSH, sudo, and systemd. "
+            "Passwords are used only for this session. On first connect, Laptop Health will ask you to trust the device SSH host key."
+        )
         subtitle.setObjectName("DeploySubtitle")
         subtitle.setWordWrap(True)
         lay.addWidget(subtitle)
@@ -290,12 +317,31 @@ class ProbeDeployDialog(QDialog):
         intro_l.addWidget(intro_title)
         intro_body = QLabel(
             "Use the Pi's IP or hostname, choose a friendly probe name for the dashboard card, "
-            "and use self-signed TLS unless you intentionally want plain HTTP on your LAN."
+            "leave the port at 9821 unless you need a different one, and use self-signed TLS unless you intentionally want plain HTTP on your LAN. "
+            "This installer is intended for Raspberry Pi OS and other Debian-family Linux targets."
         )
         intro_body.setObjectName("DeployHintBody")
         intro_body.setWordWrap(True)
         intro_l.addWidget(intro_body)
         lay.addWidget(intro)
+
+        self.secret_warning = QFrame()
+        self.secret_warning.setObjectName("DeployWarningCard")
+        secret_l = QVBoxLayout(self.secret_warning)
+        secret_l.setContentsMargins(12, 10, 12, 10)
+        secret_l.setSpacing(4)
+        secret_title = QLabel("Desktop Secret Storage Required")
+        secret_title.setObjectName("DeployWarningTitle")
+        secret_l.addWidget(secret_title)
+        secret_body = QLabel(
+            "This install needs `secret-tool` / libsecret support so Laptop Health can save the probe token securely.\n\n"
+            "Install `libsecret-tools`, then reopen this dialog."
+        )
+        secret_body.setObjectName("DeployWarningBody")
+        secret_body.setWordWrap(True)
+        secret_l.addWidget(secret_body)
+        lay.addWidget(self.secret_warning)
+        self.secret_warning.setVisible(not secret_store_required())
 
         self.status_card = QFrame()
         self.status_card.setObjectName("DeployStatusCard")
@@ -321,6 +367,14 @@ class ProbeDeployDialog(QDialog):
         self.name_input = QLineEdit(config.name or "Raspberry Pi")
         self.name_input.setPlaceholderText("Kitchen Pi, Office Pi, Bench Pi")
         form.addRow(self._label_row("Probe name", self._help_name), self.name_input)
+
+        self.port_input = QLineEdit(_extract_port(config.url) or "9821")
+        self.port_input.setPlaceholderText("9821")
+        form.addRow(self._label_row("Probe port", self._help_port), self.port_input)
+
+        self.bind_host_input = QLineEdit("0.0.0.0")
+        self.bind_host_input.setPlaceholderText("0.0.0.0")
+        form.addRow(self._label_row("Bind address", self._help_bind_host), self.bind_host_input)
 
         import getpass
         self.user_input = QLineEdit(getpass.getuser())
@@ -356,7 +410,7 @@ class ProbeDeployDialog(QDialog):
 
         self.ssh_password_input = QLineEdit("")
         self.ssh_password_input.setEchoMode(QLineEdit.Password)
-        self.ssh_password_input.setPlaceholderText("Password for SSH login to the Pi")
+        self.ssh_password_input.setPlaceholderText("Leave blank to use SSH key or agent if available")
         form.addRow(self._label_row("SSH password", self._help_ssh_password), self.ssh_password_input)
 
         self.show_ssh_password = QCheckBox("Show SSH password")
@@ -384,6 +438,13 @@ class ProbeDeployDialog(QDialog):
         lay.addWidget(self.log, 1)
 
         actions = QHBoxLayout()
+        self.copy_log_btn = QPushButton("Copy Install Log")
+        self.copy_log_btn.setObjectName("ActionBtn")
+        self.copy_log_btn.clicked.connect(self._copy_log)
+        self.copy_log_btn.setEnabled(False)
+        actions.addWidget(self.copy_log_btn)
+        self.copy_log_btn.hide()
+
         actions.addStretch(1)
         self.cancel_btn = QPushButton("Cancel")
         self.cancel_btn.setObjectName("ActionBtn")
@@ -423,6 +484,11 @@ class ProbeDeployDialog(QDialog):
                 border: 1px solid rgba(96,165,250,0.20);
                 border-radius: 12px;
             }
+            QFrame#DeployWarningCard {
+                background: rgba(248,113,113,0.10);
+                border: 1px solid rgba(248,113,113,0.24);
+                border-radius: 12px;
+            }
             QLabel#DeployTitle {
                 color: rgba(255,255,255,0.96);
                 font-weight: 700;
@@ -435,6 +501,15 @@ class ProbeDeployDialog(QDialog):
             }
             QLabel#DeployHintBody {
                 color: rgba(248,251,255,0.76);
+                font-size: 12px;
+            }
+            QLabel#DeployWarningTitle {
+                color: rgba(255,234,234,0.98);
+                font-weight: 700;
+                font-size: 12px;
+            }
+            QLabel#DeployWarningBody {
+                color: rgba(255,234,234,0.88);
                 font-size: 12px;
             }
             QLabel#DeployStatusBadge {
@@ -524,7 +599,12 @@ class ProbeDeployDialog(QDialog):
         )
 
         self._toggle_generate_token(True)
-        self._set_status("Ready", "Fill in the probe details, then start the install.", "blue")
+        if secret_store_required():
+            self._set_status("Ready", "Fill in the probe details, then start the install.", "blue")
+        else:
+            self.start_btn.setEnabled(False)
+            self.start_btn.setToolTip("Install desktop secret storage first: sudo apt install libsecret-tools")
+            self._set_status("Blocked", "Desktop secret storage is required before the app can save probe credentials.", "red")
 
     def _label_row(self, text: str, handler) -> QWidget:
         box = QWidget()
@@ -554,6 +634,7 @@ class ProbeDeployDialog(QDialog):
         self.log.moveCursor(QTextCursor.End)
         self.log.insertPlainText(text)
         self.log.moveCursor(QTextCursor.End)
+        self.copy_log_btn.setEnabled(bool(self.log.toPlainText().strip()))
         self._update_status_from_output(text)
 
     def _set_status(self, badge: str, text: str, accent: str) -> None:
@@ -618,7 +699,7 @@ class ProbeDeployDialog(QDialog):
         elif "dashboard url:" in lower:
             self._set_status("Verifying", "The probe is up. Final verification and local settings save are running.", "green")
         elif "probe verification failed" in lower or "install failed" in lower:
-            self._set_status("Failed", "Install did not complete. Check the log output below.", "red")
+            self._set_status("Failed", "Install did not complete. The failure details are in the log panel below.", "red")
         elif "saved probe settings locally for the app" in lower:
             self._set_status("Complete", "Probe installed successfully and app settings were saved.", "green")
 
@@ -669,7 +750,33 @@ class ProbeDeployDialog(QDialog):
             "This must match the exact host value this laptop will use in the probe URL.\n\n"
             "Examples:\n"
             "If the URL will be https://192.0.2.51:9821/metrics then enter 192.0.2.51\n"
-            "If the URL will be https://raspberrypi.local:9821/metrics then enter raspberrypi.local",
+            "If the URL will be https://raspberrypi.local:9822/metrics then enter raspberrypi.local",
+        )
+
+    def _help_port(self) -> None:
+        self._show_help(
+            "Probe Port",
+            "This is the TCP port the probe service will listen on.\n\n"
+            "Default:\n"
+            "9821\n\n"
+            "Change it only if:\n"
+            "you already use 9821 on that device, or you want multiple probe instances on the same Pi.\n\n"
+            "Examples:\n"
+            "9821\n"
+            "9822",
+        )
+
+    def _help_bind_host(self) -> None:
+        self._show_help(
+            "Bind Address",
+            "This controls which network address the probe service listens on.\n\n"
+            "Recommended:\n"
+            "Use 0.0.0.0 if this laptop needs to reach the probe over the LAN.\n\n"
+            "Stronger restriction:\n"
+            "Use a specific device IP if you want the probe exposed only on one interface.\n\n"
+            "Examples:\n"
+            "0.0.0.0\n"
+            "192.0.2.51",
         )
 
     def _help_token(self) -> None:
@@ -685,7 +792,8 @@ class ProbeDeployDialog(QDialog):
         self._show_help(
             "SSH Password",
             "This is the password used to log in to the Pi over SSH.\n\n"
-            "The app uses it only for this install session.",
+            "You can leave it blank if your SSH key or SSH agent already works for this device.\n\n"
+            "The app uses the password only for this install session.",
         )
 
     def _help_sudo_password(self) -> None:
@@ -698,6 +806,8 @@ class ProbeDeployDialog(QDialog):
     def _start(self) -> None:
         host = self.host_input.text().strip()
         user = self.user_input.text().strip()
+        bind_host = self.bind_host_input.text().strip() or "0.0.0.0"
+        port_text = self.port_input.text().strip()
         tls_mode = "self-signed" if self.tls_self_signed.isChecked() else "off"
         tls_cn = self.tls_host_input.text().strip() if self.tls_self_signed.isChecked() else host
         token = self.token_input.text().strip() if not self.generate_token.isChecked() else _generate_token()
@@ -710,24 +820,46 @@ class ProbeDeployDialog(QDialog):
         if self.tls_self_signed.isChecked() and not tls_cn:
             self._append("HTTPS hostname or IP is required for self-signed TLS.\n")
             return
+        try:
+            port = int(port_text or "9821")
+        except ValueError:
+            self._append("Probe port must be a number.\n")
+            return
+        if port < 1 or port > 65535:
+            self._append("Probe port must be between 1 and 65535.\n")
+            return
         if not token:
             self._append("Probe token is required.\n")
+            return
+        if not secret_store_required():
+            self._append("Desktop secret storage is required before installing a probe.\n")
+            self._append("Install `secret-tool` / libsecret support, then retry.\n")
+            self._set_status("Blocked", "Desktop secret storage is required before the app can save probe credentials.", "red")
+            return
+        if not _ensure_host_trusted(self, host):
+            self._append("SSH host trust was not established. Install cancelled.\n")
+            self._set_status("Blocked", "Trust the device SSH host key before running the install.", "orange")
             return
 
         self.start_btn.setEnabled(False)
         self.cancel_btn.setEnabled(False)
         self._auto_close_pending = False
+        self._last_failure_summary = ""
         self.log.clear()
+        self.copy_log_btn.hide()
+        self.copy_log_btn.setEnabled(False)
         self._set_status("Starting", "Launching the probe install workflow.", "blue")
         self._append("Starting deploy...\n\n")
 
         self._saved_token = token
-        self._saved_url = f"https://{tls_cn}:9821/metrics" if tls_mode == "self-signed" else f"http://{host}:9821/metrics"
+        self._saved_url = f"https://{tls_cn}:{port}/metrics" if tls_mode == "self-signed" else f"http://{host}:{port}/metrics"
         self._saved_cert = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "probe", "probe.crt")) if tls_mode == "self-signed" else ""
 
         self._thread = _DeployThread(
             host=host,
             user=user,
+            bind_host=bind_host,
+            port=port,
             tls_mode=tls_mode,
             tls_cn=tls_cn,
             token=token,
@@ -742,24 +874,58 @@ class ProbeDeployDialog(QDialog):
         self.cancel_btn.setEnabled(True)
         self.start_btn.setEnabled(True)
         if rc == 0:
-            saved = copy.deepcopy(self._config)
-            if not saved.id:
-                saved = new_probe_config(name=self.name_input.text().strip() or "Raspberry Pi")
-            saved.enabled = True
-            saved.name = self.name_input.text().strip() or "Raspberry Pi"
-            saved.url = self._saved_url
-            saved.token = self._saved_token
-            saved.ca_cert_path = self._saved_cert
-            upsert_probe_config(saved)
-            self._append("\nSaved probe settings locally for the app.\n")
-            self._set_status("Complete", "Probe installed successfully. This window will close automatically.", "green")
-            self.start_btn.setEnabled(False)
-            self.cancel_btn.setText("Close")
-            self._auto_close_pending = True
-            QTimer.singleShot(1800, self._close_if_pending)
+            try:
+                saved = copy.deepcopy(self._config)
+                if not saved.id:
+                    saved = new_probe_config(name=self.name_input.text().strip() or "Raspberry Pi")
+                saved.enabled = True
+                saved.name = self.name_input.text().strip() or "Raspberry Pi"
+                saved.url = self._saved_url
+                saved.token = self._saved_token
+                saved.ca_cert_path = self._saved_cert
+                upsert_probe_config(saved)
+                self._append("\nSaved probe settings locally for the app.\n")
+                self._set_status("Complete", "Probe installed successfully. This window will close automatically.", "green")
+                self.start_btn.setEnabled(False)
+                self.cancel_btn.setText("Close")
+                self._auto_close_pending = True
+                QTimer.singleShot(1800, self._close_if_pending)
+            except Exception as exc:
+                self._append(f"\nInstall completed on the Pi, but saving credentials locally failed: {exc}\n")
+                self.copy_log_btn.show()
+                self.copy_log_btn.setEnabled(bool(self.log.toPlainText().strip()))
+                self._set_status("Failed", "The probe installed on the Pi, but the app could not save credentials locally.", "red")
         else:
             self._append(f"\nInstall failed with exit code {rc}.\n")
-            self._set_status("Failed", "Install failed. Review the log output and retry.", "red")
+            self._last_failure_summary = self._summarize_failure()
+            if self._last_failure_summary:
+                self._append(f"\nFailure summary: {self._last_failure_summary}\n")
+            self.copy_log_btn.show()
+            self.copy_log_btn.setEnabled(bool(self.log.toPlainText().strip()))
+            self._set_status("Failed", "Install failed. The details are shown below and can be copied with 'Copy Install Log'.", "red")
+
+    def _summarize_failure(self) -> str:
+        lines = [line.strip() for line in self.log.toPlainText().splitlines() if line.strip()]
+        for line in reversed(lines):
+            lower = line.lower()
+            if lower.startswith("install failed:"):
+                return line
+            if "permission denied" in lower:
+                return line
+            if "verification failed" in lower:
+                return line
+            if "runtimeerror" in lower:
+                return line
+        return lines[-1] if lines else ""
+
+    def _copy_log(self) -> None:
+        text = self.log.toPlainText().strip()
+        if not text:
+            return
+        if self._last_failure_summary:
+            text = f"Failure summary: {self._last_failure_summary}\n\n{text}"
+        QGuiApplication.clipboard().setText(text)
+        self._set_status("Failed", "Install failed. The log has been copied to the clipboard.", "red")
 
     def _close_if_pending(self) -> None:
         if self._auto_close_pending and self.isVisible():
@@ -769,3 +935,117 @@ class ProbeDeployDialog(QDialog):
 def _extract_host(url: str) -> str:
     m = re.match(r"^https?://([^/:]+)", url or "")
     return m.group(1) if m else ""
+
+
+def _extract_port(url: str) -> str:
+    m = re.match(r"^https?://[^/:]+:(\d+)", url or "")
+    return m.group(1) if m else ""
+
+
+def _ssh_fingerprint_sha256(key) -> str:
+    digest = hashlib.sha256(key.asbytes()).digest()
+    return "SHA256:" + base64.b64encode(digest).decode("ascii").rstrip("=")
+
+
+def _known_hosts_path() -> str:
+    return os.path.join(os.path.expanduser("~"), ".ssh", "known_hosts")
+
+
+def _host_is_known(host: str) -> bool:
+    try:
+        import paramiko
+    except Exception:
+        return False
+    client = paramiko.SSHClient()
+    client.load_system_host_keys()
+    return client.get_host_keys().lookup(host) is not None
+
+
+def _fetch_remote_host_key(host: str, port: int = 22):
+    import paramiko
+
+    sock = socket.create_connection((host, port), timeout=8)
+    transport = paramiko.Transport(sock)
+    try:
+        transport.start_client(timeout=8)
+        return transport.get_remote_server_key()
+    finally:
+        transport.close()
+
+
+def _store_host_key(host: str, key) -> None:
+    import paramiko
+
+    ssh_dir = os.path.join(os.path.expanduser("~"), ".ssh")
+    os.makedirs(ssh_dir, mode=0o700, exist_ok=True)
+    try:
+        os.chmod(ssh_dir, 0o700)
+    except OSError:
+        pass
+
+    path = _known_hosts_path()
+    host_keys = paramiko.HostKeys()
+    if os.path.exists(path):
+        host_keys.load(path)
+    host_keys.add(host, key.get_name(), key)
+    host_keys.save(path)
+    try:
+        os.chmod(path, 0o600)
+    except OSError:
+        pass
+
+
+def _ensure_host_trusted(parent, host: str) -> bool:
+    if _host_is_known(host):
+        return True
+
+    try:
+        key = _fetch_remote_host_key(host)
+    except Exception as exc:
+        PromptDialog(
+            parent,
+            "SSH Host Verification Failed",
+            (
+                f"Laptop Health could not fetch the SSH host key for {host}.\n\n"
+                f"Details: {exc}\n\n"
+                "Connect to the device once with ssh or fix the network issue, then retry."
+            ),
+            accent="red",
+            ok_text="Close",
+            cancel_text="Cancel",
+        ).exec()
+        return False
+
+    prompt = PromptDialog(
+        parent,
+        "Trust SSH Host Key",
+        (
+            f"This device is not yet trusted in SSH known_hosts.\n\n"
+            f"Host: {host}\n"
+            f"Key type: {key.get_name()}\n"
+            f"Fingerprint: {_ssh_fingerprint_sha256(key)}\n\n"
+            "Only continue if this fingerprint matches the device you expect to manage."
+        ),
+        accent="blue",
+        ok_text="Trust and Continue",
+        cancel_text="Cancel",
+    )
+    if prompt.exec() != QDialog.Accepted:
+        return False
+
+    try:
+        _store_host_key(host, key)
+    except Exception as exc:
+        PromptDialog(
+            parent,
+            "Failed To Save SSH Trust",
+            (
+                f"Laptop Health could not save the SSH host key for {host} into known_hosts.\n\n"
+                f"Details: {exc}"
+            ),
+            accent="red",
+            ok_text="Close",
+            cancel_text="Cancel",
+        ).exec()
+        return False
+    return True
