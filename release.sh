@@ -53,6 +53,7 @@ DEPS="${DEPS:-lm-sensors, powertop, nvme-cli, power-profiles-daemon, network-man
 DIST_DIR="dist/${APP_NAME}"
 PKG_ROOT="pkg/${APP_NAME}_${VERSION}-${REV}_${ARCH}"
 DEB_OUT="pkg/${APP_NAME}_${VERSION}-${REV}_${ARCH}.deb"
+VERSION_FILE="ui_v2/version.py"
 
 # ===== Flags =====
 INSTALL_AFTER=0
@@ -70,6 +71,16 @@ have() { command -v "$1" >/dev/null 2>&1; }
 echo "[i] Version: ${VERSION}-${REV}"
 echo "[i] Spec:    ${SPEC_FILE}"
 echo "[i] Icon:    ${ICON_SRC}"
+
+# ===== Stamp app version metadata =====
+if [[ -f "${VERSION_FILE}" ]]; then
+  release_date="$(date +%F)"
+  cat > "${VERSION_FILE}" <<EOF
+APP_VERSION = "v${VERSION}"
+APP_RELEASE_DATE = "${release_date}"
+EOF
+  echo "[i] Stamped ${VERSION_FILE} with v${VERSION} (${release_date})"
+fi
 
 # ===== Checks =====
 [[ -f "${SPEC_FILE}" ]] || die "Spec file not found: ${SPEC_FILE}"
