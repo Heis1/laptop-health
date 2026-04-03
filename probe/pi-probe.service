@@ -1,0 +1,20 @@
+[Unit]
+Description=Raspberry Pi monitoring probe
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=pi
+WorkingDirectory=/opt/pi-probe
+Environment=PI_PROBE_HOST=0.0.0.0
+Environment=PI_PROBE_PORT=9821
+Environment=PI_PROBE_TOKEN_FILE=/etc/pi-probe.token
+Environment=PI_PROBE_TLS_CERT=
+Environment=PI_PROBE_TLS_KEY=
+ExecStart=/usr/bin/python3 /opt/pi-probe/pi_probe.py
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

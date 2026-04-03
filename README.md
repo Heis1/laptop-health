@@ -19,6 +19,7 @@ The current version includes:
 - live sparklines and enhanced system metrics
 - integrated update checking and download support
 - configurable network discovery and improved live network monitoring
+- Raspberry Pi probe support for remote monitoring inside the desktop app
 
 ---
 
@@ -28,6 +29,7 @@ The current version includes:
 - GPU and SSD temperature visibility
 - Wake-up / power state awareness
 - Power profile detection
+- Remote Raspberry Pi probe card in the desktop dashboard
 - Network diagnostics module
 - Configurable device discovery with quiet/noisy scans
 - Optional speed testing support
@@ -104,6 +106,19 @@ Or from source:
 python main.py
 ```
 
+To run the new UI preview from source:
+
+```bash
+./run-v2.sh
+```
+
+Or:
+
+```bash
+source .venv/bin/activate
+python ui_v2/app.py
+```
+
 ---
 
 ## Development
@@ -128,6 +143,167 @@ Run:
 ```bash
 python main.py
 ```
+
+For the new UI preview:
+
+```bash
+./run-v2.sh
+```
+
+## Raspberry Pi Probe
+
+The repository includes a headless probe at `probe/pi_probe.py`.
+
+Probe installs target Linux devices, especially Raspberry Pi OS and other Debian-family systems with `ssh`, `sudo`, and `systemd` available.
+
+This feature is currently under active development on `feature/pi-probe-integration`.
+
+Current in-progress scope:
+
+- guided in-app install and uninstall flow for Raspberry Pi probes
+- multi-probe support in the desktop app
+- customizable probe names
+- customizable probe ports
+- rotating probe card on the overview dashboard
+- optional Pi-hole summary attachment per probe
+- hardened token handling and TLS verification
+
+Quick deploy from your laptop:
+
+```bash
+./probe/setup_probe.sh
+```
+
+That interactive script prompts for:
+
+- the Pi hostname or IP
+- the Pi SSH user
+- the probe bind address
+- the probe port
+- TLS mode
+- the HTTPS hostname to put into the certificate
+- the probe token, or it can generate one for you
+
+At the end it prints the exact app settings to enter.
+
+### How To Test The Probe Flow
+
+From source:
+
+```bash
+./run-v2.sh
+```
+
+Then in the app:
+
+1. Open `Probe/s`
+2. Click `Add Probe`
+3. Enter the Pi IP or hostname, a friendly probe name, the SSH user, and token choice
+4. Leave the probe port at `9821` unless you need a different port for that device
+5. Wait for the in-app installer to finish
+6. Confirm the new probe appears on `Probe/s`
+7. Confirm the overview dashboard shows the probe card when at least one probe is enabled
+8. Add a second probe entry or rename the current one to test multi-probe switching
+9. Use `Remove Current` to confirm the local entry disappears and the remote uninstall runs
+
+Recommended verification:
+
+- confirm `./probe/test_probe.sh` returns JSON for the configured probe
+- confirm the app accepts the CA certificate at `probe/probe.crt` when using self-signed TLS
+- confirm the overview card hides completely when no probes are enabled
+- confirm manual prev/next switching and automatic rotation both work when multiple probes are enabled
+- if the probe host runs Pi-hole, enable Pi-hole stats in `Probe settings` and confirm `Probe/s` shows Pi-hole status, activity, top clients, and top blocked domains
+
+If you want the non-interactive version, use:
+
+```bash
+export PI_PROBE_USER=pi
+export PI_PROBE_TOKEN=choose-a-long-random-secret
+bash ./probe/deploy_probe.sh raspberrypi.local
+```
+
+To use a different port:
+
+```bash
+export PI_PROBE_USER=pi
+export PI_PROBE_TOKEN=choose-a-long-random-secret
+export PI_PROBE_PORT=9822
+bash ./probe/deploy_probe.sh raspberrypi.local
+```
+
+To bind the probe to a specific interface instead of all interfaces:
+
+```bash
+export PI_PROBE_USER=pi
+export PI_PROBE_TOKEN=choose-a-long-random-secret
+export PI_PROBE_HOST=192.0.2.51
+bash ./probe/deploy_probe.sh raspberrypi.local
+```
+
+Remove the probe from a Pi:
+
+```bash
+./probe/remove_probe.sh
+```
+
+That script:
+
+- copies the probe and service files to the Pi
+- runs the service as the SSH user you selected with `PI_PROBE_USER`
+- generates a self-signed TLS certificate by default
+- enables and restarts the `pi-probe` systemd service
+- copies the Pi certificate back to `probe/probe.crt` on your laptop
+- reuses one SSH connection, so you should only need to authenticate once per deploy
+
+Run it on the Raspberry Pi:
+
+```bash
+export PI_PROBE_TOKEN=choose-a-long-random-secret
+python3 probe/pi_probe.py
+```
+
+Then in Laptop Health, use `Probe settings` and enter:
+
+- URL: `http://raspberrypi.local:9821/metrics`
+- Token: the same `PI_PROBE_TOKEN`
+
+If you changed the port, use that port in the URL instead of `9821`.
+
+### HTTPS / TLS
+
+The probe can serve HTTPS directly.
+
+Set these on the Raspberry Pi before starting the probe:
+
+```bash
+export PI_PROBE_TOKEN=choose-a-long-random-secret
+export PI_PROBE_TLS_CERT=/opt/pi-probe/certs/probe.crt
+export PI_PROBE_TLS_KEY=/opt/pi-probe/certs/probe.key
+python3 probe/pi_probe.py
+```
+
+Then point Laptop Health at:
+
+- URL: `https://raspberrypi.local:9821/metrics`
+- Token: the same `PI_PROBE_TOKEN`
+- CA certificate: leave blank if the cert chains to a normal trusted CA, or set it to the local path of the Pi certificate if you are using a self-signed cert, for example `probe/probe.crt`
+
+If you changed the port, use that port in the URL instead of `9821`.
+
+This means the dashboard verifies the probe certificate instead of blindly trusting the connection.
+
+The deployment script supports:
+
+```bash
+PI_PROBE_USER=pi PI_PROBE_TOKEN=choose-a-long-random-secret PI_PROBE_TLS_MODE=self-signed bash ./probe/deploy_probe.sh raspberrypi.local
+PI_PROBE_USER=pi PI_PROBE_TOKEN=choose-a-long-random-secret PI_PROBE_TLS_MODE=off bash ./probe/deploy_probe.sh raspberrypi.local
+PI_PROBE_USER=pi PI_PROBE_TOKEN=choose-a-long-random-secret PI_PROBE_TLS_MODE=provided PI_PROBE_TLS_CERT_SOURCE=/path/to/probe.crt PI_PROBE_TLS_KEY_SOURCE=/path/to/probe.key bash ./probe/deploy_probe.sh raspberrypi.local
+```
+
+The desktop app stores non-secret probe settings in `~/.config/laptop-health/probes.json`.
+Probe and Pi-hole credentials are stored in the desktop secret store. `secret-tool` / libsecret support is required for saving those credentials from the app or the interactive shell helper. The helper no longer writes a local plaintext token file.
+
+The in-app install/remove flow now uses explicit SSH host-key trust on first connect. Laptop Health shows the device fingerprint, asks for confirmation, and then writes the trusted key to your SSH `known_hosts` file. Changed or mismatched host keys are still rejected.
 
 ---
 
