@@ -10,9 +10,10 @@ from PySide6.QtGui import QFont, QColor
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QTableWidget,
     QTableWidgetItem, QHeaderView, QTextEdit, QFrame, QStyle, QDialog,
-    QGraphicsOpacityEffect, QMessageBox,
+    QGraphicsOpacityEffect, QMessageBox, QSplitter,
 )
 from ui_v2.qtworker import QtWorker
+from ui_v2.theme import current_theme_mode
 from ui_v2.services.updates import (
     UPDATE_ACCENT_RGBA,
     classify_update_status,
@@ -28,7 +29,60 @@ from ui_v2.services.updates import (
 
 _ACCENT_STRIP = UPDATE_ACCENT_RGBA
 
-_PAGE_QSS = """
+def _page_qss(mode: str) -> str:
+    if mode == "light":
+        return """
+QPushButton#ActionBtn {
+    color: rgba(27,36,48,0.96);
+    background: rgba(255,250,242,0.88);
+    border: 1px solid rgba(27,36,48,0.12);
+    padding: 7px 12px;
+    border-radius: 10px;
+}
+QPushButton#ActionBtn:hover {
+    background: #ffffff;
+    border: 1px solid rgba(27,36,48,0.18);
+}
+QPushButton#ActionBtn:pressed { background: rgba(27,36,48,0.06); }
+QPushButton#ActionBtn:disabled {
+    color: rgba(27,36,48,0.35);
+    background: rgba(27,36,48,0.04);
+    border: 1px solid rgba(27,36,48,0.08);
+}
+QPushButton#ActionBtn[accent="green"][status="idle"] {
+    color: rgba(20,83,45,0.98); background: rgba(52,211,153,0.18); border: 1px solid rgba(52,211,153,0.34);
+}
+QPushButton#ActionBtn[accent="blue"][status="idle"] {
+    color: rgba(30,64,175,0.98); background: rgba(47,111,237,0.14); border: 1px solid rgba(47,111,237,0.30);
+}
+QPushButton#ActionBtn[accent="orange"][status="idle"] {
+    color: rgba(154,52,18,0.98); background: rgba(251,146,60,0.16); border: 1px solid rgba(251,146,60,0.30);
+}
+QPushButton#ActionBtn[accent="red"][status="idle"] {
+    color: rgba(153,27,27,0.98); background: rgba(248,113,113,0.14); border: 1px solid rgba(248,113,113,0.30);
+}
+QPushButton#ActionBtn[accent="slate"][status="idle"] {
+    color: rgba(51,65,85,0.96); background: rgba(148,163,184,0.16); border: 1px solid rgba(148,163,184,0.30);
+}
+QPushButton#ActionBtn[status="running"] { background: rgba(47,111,237,0.12); border: 1px solid rgba(47,111,237,0.28); color: rgba(27,36,48,0.98); }
+QPushButton#ActionBtn[status="success"] { background: rgba(52,211,153,0.18); border: 1px solid rgba(52,211,153,0.34); color: rgba(27,36,48,0.98); }
+QPushButton#ActionBtn[status="error"] { background: rgba(248,113,113,0.16); border: 1px solid rgba(248,113,113,0.34); color: rgba(27,36,48,0.98); }
+QPushButton#ActionBtn[status="attention"] { background: rgba(251,146,60,0.16); border: 1px solid rgba(251,146,60,0.32); color: rgba(27,36,48,0.98); }
+QTextEdit#UpdatesLog {
+    background: rgba(255,250,242,0.92); color: rgba(27,36,48,0.92); border: 1px solid rgba(27,36,48,0.10); border-radius: 12px; padding: 10px;
+}
+QScrollBar:vertical { background: transparent; width: 10px; margin: 6px 0 6px 0; }
+QScrollBar::handle:vertical { background: rgba(27,36,48,0.18); border-radius: 5px; min-height: 28px; }
+QScrollBar::handle:vertical:hover { background: rgba(27,36,48,0.28); }
+QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical { height: 0px; }
+QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical { background: transparent; }
+QScrollBar:horizontal { background: transparent; height: 10px; margin: 0 6px 0 6px; }
+QScrollBar::handle:horizontal { background: rgba(27,36,48,0.18); border-radius: 5px; min-width: 28px; }
+QScrollBar::handle:horizontal:hover { background: rgba(27,36,48,0.28); }
+QScrollBar::add-line:horizontal, QScrollBar::sub-line:horizontal { width: 0px; }
+QScrollBar::add-page:horizontal, QScrollBar::sub-page:horizontal { background: transparent; }
+"""
+    return """
 QPushButton#ActionBtn {
     color: rgba(255,255,255,0.92);
     background: rgba(255,255,255,0.08);
@@ -36,100 +90,52 @@ QPushButton#ActionBtn {
     padding: 7px 12px;
     border-radius: 10px;
 }
-QPushButton#ActionBtn:hover {
-    background: rgba(255,255,255,0.12);
-    border: 1px solid rgba(255,255,255,0.18);
-}
+QPushButton#ActionBtn:hover { background: rgba(255,255,255,0.12); border: 1px solid rgba(255,255,255,0.18); }
 QPushButton#ActionBtn:pressed { background: rgba(255,255,255,0.06); }
-QPushButton#ActionBtn:disabled {
-    color: rgba(255,255,255,0.35);
-    background: rgba(255,255,255,0.04);
-    border: 1px solid rgba(255,255,255,0.08);
-}
-QPushButton#ActionBtn[accent="green"][status="idle"] {
-    color: rgba(220,255,238,0.98);
-    background: rgba(52,211,153,0.20);
-    border: 1px solid rgba(52,211,153,0.42);
-}
-QPushButton#ActionBtn[accent="blue"][status="idle"] {
-    color: rgba(230,242,255,0.98);
-    background: rgba(96,165,250,0.18);
-    border: 1px solid rgba(96,165,250,0.42);
-}
-QPushButton#ActionBtn[accent="orange"][status="idle"] {
-    color: rgba(255,241,224,0.98);
-    background: rgba(251,146,60,0.20);
-    border: 1px solid rgba(251,146,60,0.44);
-}
-QPushButton#ActionBtn[accent="red"][status="idle"] {
-    color: rgba(255,234,234,0.98);
-    background: rgba(248,113,113,0.18);
-    border: 1px solid rgba(248,113,113,0.42);
-}
-QPushButton#ActionBtn[accent="slate"][status="idle"] {
-    color: rgba(232,240,250,0.96);
-    background: rgba(100,116,139,0.22);
-    border: 1px solid rgba(148,163,184,0.42);
-}
-QPushButton#ActionBtn[status="running"] {
-    background: rgba(255,255,255,0.18);
-    border: 1px solid rgba(255,255,255,0.34);
-    color: rgba(255,255,255,0.98);
-}
-QPushButton#ActionBtn[status="success"] {
-    background: rgba(52,211,153,0.20);
-    border: 1px solid rgba(52,211,153,0.48);
-    color: rgba(255,255,255,0.98);
-}
-QPushButton#ActionBtn[status="error"] {
-    background: rgba(248,113,113,0.20);
-    border: 1px solid rgba(248,113,113,0.46);
-    color: rgba(255,255,255,0.98);
-}
-QPushButton#ActionBtn[status="attention"] {
-    background: rgba(251,146,60,0.18);
-    border: 1px solid rgba(251,146,60,0.42);
-    color: rgba(255,255,255,0.98);
-}
-
-QTextEdit#UpdatesLog {
-    background: rgba(10, 14, 22, 0.52);
-    color: rgba(255,255,255,0.88);
-    border: 1px solid rgba(255,255,255,0.10);
-    border-radius: 12px;
-    padding: 10px;
-}
-
-QScrollBar:vertical {
-    background: transparent;
-    width: 10px;
-    margin: 6px 0 6px 0;
-}
-QScrollBar::handle:vertical {
-    background: rgba(255,255,255,0.18);
-    border-radius: 5px;
-    min-height: 28px;
-}
+QPushButton#ActionBtn:disabled { color: rgba(255,255,255,0.35); background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.08); }
+QPushButton#ActionBtn[accent="green"][status="idle"] { color: rgba(220,255,238,0.98); background: rgba(52,211,153,0.20); border: 1px solid rgba(52,211,153,0.42); }
+QPushButton#ActionBtn[accent="blue"][status="idle"] { color: rgba(230,242,255,0.98); background: rgba(96,165,250,0.18); border: 1px solid rgba(96,165,250,0.42); }
+QPushButton#ActionBtn[accent="orange"][status="idle"] { color: rgba(255,241,224,0.98); background: rgba(251,146,60,0.20); border: 1px solid rgba(251,146,60,0.44); }
+QPushButton#ActionBtn[accent="red"][status="idle"] { color: rgba(255,234,234,0.98); background: rgba(248,113,113,0.18); border: 1px solid rgba(248,113,113,0.42); }
+QPushButton#ActionBtn[accent="slate"][status="idle"] { color: rgba(232,240,250,0.96); background: rgba(100,116,139,0.22); border: 1px solid rgba(148,163,184,0.42); }
+QPushButton#ActionBtn[status="running"] { background: rgba(255,255,255,0.18); border: 1px solid rgba(255,255,255,0.34); color: rgba(255,255,255,0.98); }
+QPushButton#ActionBtn[status="success"] { background: rgba(52,211,153,0.20); border: 1px solid rgba(52,211,153,0.48); color: rgba(255,255,255,0.98); }
+QPushButton#ActionBtn[status="error"] { background: rgba(248,113,113,0.20); border: 1px solid rgba(248,113,113,0.46); color: rgba(255,255,255,0.98); }
+QPushButton#ActionBtn[status="attention"] { background: rgba(251,146,60,0.18); border: 1px solid rgba(251,146,60,0.42); color: rgba(255,255,255,0.98); }
+QTextEdit#UpdatesLog { background: rgba(10, 14, 22, 0.52); color: rgba(255,255,255,0.88); border: 1px solid rgba(255,255,255,0.10); border-radius: 12px; padding: 10px; }
+QScrollBar:vertical { background: transparent; width: 10px; margin: 6px 0 6px 0; }
+QScrollBar::handle:vertical { background: rgba(255,255,255,0.18); border-radius: 5px; min-height: 28px; }
 QScrollBar::handle:vertical:hover { background: rgba(255,255,255,0.28); }
 QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical { height: 0px; }
 QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical { background: transparent; }
-
-QScrollBar:horizontal {
-    background: transparent;
-    height: 10px;
-    margin: 0 6px 0 6px;
-}
-QScrollBar::handle:horizontal {
-    background: rgba(255,255,255,0.18);
-    border-radius: 5px;
-    min-width: 28px;
-}
+QScrollBar:horizontal { background: transparent; height: 10px; margin: 0 6px 0 6px; }
+QScrollBar::handle:horizontal { background: rgba(255,255,255,0.18); border-radius: 5px; min-width: 28px; }
 QScrollBar::handle:horizontal:hover { background: rgba(255,255,255,0.28); }
 QScrollBar::add-line:horizontal, QScrollBar::sub-line:horizontal { width: 0px; }
 QScrollBar::add-page:horizontal, QScrollBar::sub-page:horizontal { background: transparent; }
 """
 
-_TABLE_QSS = """
+
+def _table_qss(mode: str) -> str:
+    if mode == "light":
+        return """
+QTableWidget#UpdatesTable {
+    background: transparent;
+    border: 1px solid rgba(27,36,48,0.10);
+    border-radius: 12px;
+    color: rgba(27,36,48,0.92);
+    selection-background-color: rgba(47,111,237,0.12);
+    selection-color: rgba(27,36,48,0.98);
+    outline: 0;
+}
+QTableWidget#UpdatesTable::viewport { background: rgba(255,250,242,0.92); border-radius: 12px; }
+QTableWidget::item { padding: 7px 10px; border-bottom: 1px solid rgba(27,36,48,0.05); background: transparent; }
+QTableWidget::item:hover { background: rgba(27,36,48,0.04); }
+QTableWidget::item:selected { background: rgba(47,111,237,0.12); }
+QTableWidget::item:selected:hover { background: rgba(47,111,237,0.16); }
+QTableCornerButton::section { background: rgba(27,36,48,0.05); border: 0px; }
+"""
+    return """
 QTableWidget#UpdatesTable {
     background: transparent;
     border: 1px solid rgba(255,255,255,0.10);
@@ -139,26 +145,28 @@ QTableWidget#UpdatesTable {
     selection-color: rgba(255,255,255,0.96);
     outline: 0;
 }
-QTableWidget#UpdatesTable::viewport {
-    background: rgba(10, 14, 22, 0.52);
-    border-radius: 12px;
-}
-QTableWidget::item {
-    padding: 7px 10px;
-    border-bottom: 1px solid rgba(255,255,255,0.05);
-    background: transparent;
-}
+QTableWidget#UpdatesTable::viewport { background: rgba(10, 14, 22, 0.52); border-radius: 12px; }
+QTableWidget::item { padding: 7px 10px; border-bottom: 1px solid rgba(255,255,255,0.05); background: transparent; }
 QTableWidget::item:hover { background: rgba(255,255,255,0.06); }
 QTableWidget::item:selected { background: rgba(255,255,255,0.12); }
 QTableWidget::item:selected:hover { background: rgba(255,255,255,0.14); }
-
-QTableCornerButton::section {
-    background: rgba(255,255,255,0.07);
-    border: 0px;
-}
+QTableCornerButton::section { background: rgba(255,255,255,0.07); border: 0px; }
 """
 
-_HDR_QSS = """
+
+def _hdr_qss(mode: str) -> str:
+    if mode == "light":
+        return """
+QHeaderView { background: rgba(255,250,242,0.92); }
+QHeaderView::section {
+    background: rgba(27,36,48,0.05);
+    color: rgba(27,36,48,0.90);
+    padding: 8px 10px;
+    border: 0px;
+    border-bottom: 1px solid rgba(27,36,48,0.10);
+}
+"""
+    return """
 QHeaderView { background: rgba(10, 14, 22, 0.52); }
 QHeaderView::section {
     background: rgba(255,255,255,0.07);
@@ -442,7 +450,8 @@ class ConfirmDialog(QDialog):
 class UpdatesPage(QWidget):
     def __init__(self):
         super().__init__()
-        self.setStyleSheet(_PAGE_QSS)
+        self._theme_mode = current_theme_mode()
+        self.setStyleSheet(_page_qss(self._theme_mode))
         self._refresh_failed = False
         self._active_action: str | None = None
         self._activity_rows: dict[str, int] = {}
@@ -516,9 +525,29 @@ class UpdatesPage(QWidget):
         for b in (self.btn_refresh, self.btn_update_lists, self.btn_upgrade, self.btn_full, self.btn_autoremove):
             b.setFont(base_font)
 
+        self.sections = QSplitter(Qt.Vertical)
+        self.sections.setChildrenCollapsible(False)
+        self.sections.setHandleWidth(10)
+        root.addWidget(self.sections, 1)
+
+        self.pending_panel = QFrame()
+        self.pending_panel.setObjectName("Card")
+        self.pending_panel.setProperty("accent", "blue")
+        pending_l = QVBoxLayout(self.pending_panel)
+        pending_l.setContentsMargins(14, 12, 14, 14)
+        pending_l.setSpacing(8)
+
+        self.pending_title = QLabel("Pending Updates")
+        self.pending_title.setObjectName("CardTitle")
+        pending_l.addWidget(self.pending_title)
+
+        self.pending_sub = QLabel("Packages currently available to update on this system.")
+        self.pending_sub.setObjectName("CardSub")
+        pending_l.addWidget(self.pending_sub)
+
         self.table = QTableWidget(0, 4)
         self.table.setObjectName("UpdatesTable")
-        self.table.setStyleSheet(_TABLE_QSS)
+        self.table.setStyleSheet(_table_qss(self._theme_mode))
         self.table.setHorizontalHeaderLabels(["Package", "Origin", "Security", "Status"])
         self.table.horizontalHeader().setSectionResizeMode(0, QHeaderView.Stretch)
         self.table.horizontalHeader().setSectionResizeMode(1, QHeaderView.Stretch)
@@ -531,9 +560,14 @@ class UpdatesPage(QWidget):
         self.table.setAlternatingRowColors(False)
         self.table.setFont(base_font)
         self.table.setFocusPolicy(Qt.NoFocus)
+        self.table.setWordWrap(False)
+        self.table.setTextElideMode(Qt.ElideRight)
+        self.table.setVerticalScrollMode(QTableWidget.ScrollPerPixel)
+        self.table.verticalHeader().setDefaultSectionSize(38)
+        self.table.verticalHeader().setMinimumSectionSize(34)
 
         hdr = self.table.horizontalHeader()
-        hdr.setStyleSheet(_HDR_QSS)
+        hdr.setStyleSheet(_hdr_qss(self._theme_mode))
         hdr.setHighlightSections(False)
         hdr.setDefaultAlignment(Qt.AlignLeft | Qt.AlignVCenter)
         hdr.setMinimumHeight(34)
@@ -541,12 +575,44 @@ class UpdatesPage(QWidget):
         hdr_font = QFont(base_font); hdr_font.setBold(True)
         hdr.setFont(hdr_font)
 
-        root.addWidget(self.table, 1)
+        pending_l.addWidget(self.table, 1)
+        self.sections.addWidget(self.pending_panel)
+
+        self.lower_panel = QFrame()
+        self.lower_panel.setObjectName("Card")
+        self.lower_panel.setProperty("accent", "blue")
+        lower_l = QVBoxLayout(self.lower_panel)
+        lower_l.setContentsMargins(14, 12, 14, 14)
+        lower_l.setSpacing(10)
+
+        self.lower_title = QLabel("Operations & Output")
+        self.lower_title.setObjectName("CardTitle")
+        lower_l.addWidget(self.lower_title)
+
+        self.lower_sub = QLabel("Live package actions and command output for the current update task.")
+        self.lower_sub.setObjectName("CardSub")
+        lower_l.addWidget(self.lower_sub)
+
+        lower_split = QSplitter(Qt.Horizontal)
+        lower_split.setChildrenCollapsible(False)
+        lower_split.setHandleWidth(10)
+        lower_l.addWidget(lower_split, 1)
+
+        self.activity_panel = QFrame()
+        self.activity_panel.setObjectName("Card")
+        self.activity_panel.setProperty("accent", "blue")
+        activity_l = QVBoxLayout(self.activity_panel)
+        activity_l.setContentsMargins(12, 10, 12, 12)
+        activity_l.setSpacing(8)
+
+        self.activity_title = QLabel("Active Operations")
+        self.activity_title.setObjectName("CardTitle")
+        activity_l.addWidget(self.activity_title)
 
         self.activity = QTableWidget(0, 3)
         self.activity.setObjectName("UpdatesTable")
-        self.activity.setStyleSheet(_TABLE_QSS)
-        self.activity.setHorizontalHeaderLabels(["Package", "Stage", "Progress"])
+        self.activity.setStyleSheet(_table_qss(self._theme_mode))
+        self.activity.setHorizontalHeaderLabels(["Item", "Stage", "Progress"])
         self.activity.horizontalHeader().setSectionResizeMode(0, QHeaderView.Stretch)
         self.activity.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeToContents)
         self.activity.horizontalHeader().setSectionResizeMode(2, QHeaderView.ResizeToContents)
@@ -557,16 +623,33 @@ class UpdatesPage(QWidget):
         self.activity.setAlternatingRowColors(False)
         self.activity.setFont(base_font)
         self.activity.setFocusPolicy(Qt.NoFocus)
-        self.activity.setMinimumHeight(130)
+        self.activity.setWordWrap(False)
+        self.activity.setTextElideMode(Qt.ElideRight)
+        self.activity.setVerticalScrollMode(QTableWidget.ScrollPerPixel)
+        self.activity.verticalHeader().setDefaultSectionSize(38)
+        self.activity.verticalHeader().setMinimumSectionSize(34)
+        self.activity.setMinimumHeight(140)
 
         activity_hdr = self.activity.horizontalHeader()
-        activity_hdr.setStyleSheet(_HDR_QSS)
+        activity_hdr.setStyleSheet(_hdr_qss(self._theme_mode))
         activity_hdr.setHighlightSections(False)
         activity_hdr.setDefaultAlignment(Qt.AlignLeft | Qt.AlignVCenter)
         activity_hdr.setMinimumHeight(34)
         activity_hdr.setFont(hdr_font)
 
-        root.addWidget(self.activity)
+        activity_l.addWidget(self.activity, 1)
+        lower_split.addWidget(self.activity_panel)
+
+        self.log_panel = QFrame()
+        self.log_panel.setObjectName("Card")
+        self.log_panel.setProperty("accent", "blue")
+        log_l = QVBoxLayout(self.log_panel)
+        log_l.setContentsMargins(12, 10, 12, 12)
+        log_l.setSpacing(8)
+
+        self.log_title = QLabel("Command Output")
+        self.log_title.setObjectName("CardTitle")
+        log_l.addWidget(self.log_title)
 
         self.log = QTextEdit()
         self.log.setObjectName("UpdatesLog")
@@ -590,7 +673,17 @@ class UpdatesPage(QWidget):
         mono.setPointSize(max(9, base_font.pointSize() - 1))
         self.log.setFont(mono)
         self.log.setMinimumHeight(150)
-        root.addWidget(self.log)
+        log_l.addWidget(self.log, 1)
+        lower_split.addWidget(self.log_panel)
+
+        lower_split.setStretchFactor(0, 3)
+        lower_split.setStretchFactor(1, 4)
+        lower_split.setSizes([360, 500])
+        self.sections.addWidget(self.lower_panel)
+
+        self.sections.setStretchFactor(0, 8)
+        self.sections.setStretchFactor(1, 3)
+        self.sections.setSizes([560, 240])
 
         self._workers: list[QtWorker] = []
         self._action_runner: AptActionRunner | None = None
@@ -602,6 +695,14 @@ class UpdatesPage(QWidget):
         self._busy_anim.timeout.connect(self._tick_busy_badge)
 
         self.refresh()
+
+    def apply_theme_mode(self, mode: str) -> None:
+        self._theme_mode = "light" if str(mode).lower() == "light" else "dark"
+        self.setStyleSheet(_page_qss(self._theme_mode))
+        self.table.setStyleSheet(_table_qss(self._theme_mode))
+        self.activity.setStyleSheet(_table_qss(self._theme_mode))
+        self.table.horizontalHeader().setStyleSheet(_hdr_qss(self._theme_mode))
+        self.activity.horizontalHeader().setStyleSheet(_hdr_qss(self._theme_mode))
 
     def _command_tip(self, action: str) -> str:
         return f"Runs: {get_apt_action_description(action)}"
@@ -623,6 +724,13 @@ class UpdatesPage(QWidget):
         btn.style().unpolish(btn)
         btn.style().polish(btn)
         btn.update()
+
+    def _set_output_panels_accent(self, accent: str) -> None:
+        for panel in (self.lower_panel, self.activity_panel, self.log_panel):
+            panel.setProperty("accent", accent)
+            panel.style().unpolish(panel)
+            panel.style().polish(panel)
+            panel.update()
 
     def _clear_activity(self) -> None:
         self.activity.setRowCount(0)
@@ -872,6 +980,7 @@ class UpdatesPage(QWidget):
             self._append_log(msg)
 
         if busy:
+            self._set_output_panels_accent("blue")
             self._set_button_status("refresh", "running")
             self._busy_anim_tick = 0
             self._set_badge("REFRESHING", "blue")
@@ -880,6 +989,7 @@ class UpdatesPage(QWidget):
             except Exception:
                 pass
         else:
+            self._set_output_panels_accent("blue")
             self._set_button_status("refresh", "error" if self._refresh_failed else "success")
             try:
                 self._busy_anim.stop()
@@ -906,6 +1016,7 @@ class UpdatesPage(QWidget):
         except Exception:
             pass
         self._clear_activity()
+        self._set_output_panels_accent("orange")
         self._set_button_status(action, "running")
         self._set_badge(f"RUNNING {action.upper()}", "orange")
 
@@ -1036,6 +1147,8 @@ class UpdatesPage(QWidget):
             self._busy_fx_activity.setOpacity(1.0)
         except Exception:
             pass
+
+        self._set_output_panels_accent("blue")
 
         self.refresh()
 

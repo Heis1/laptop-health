@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from pathlib import Path
+
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
     QCheckBox,
@@ -50,6 +52,7 @@ class ProbeSettingsDialog(QDialog):
         self._probe_id = config.id
         self._existing_token = config.token
         self._existing_pihole_password = config.pihole_password
+        checkbox_tick_icon = (Path(__file__).resolve().parents[2] / "assets" / "checkbox-check.svg").as_posix()
         self.setWindowTitle("Probe Settings")
         self.setModal(True)
         self.setWindowFlags(Qt.Dialog | Qt.FramelessWindowHint)
@@ -223,6 +226,28 @@ class ProbeSettingsDialog(QDialog):
                 color: rgba(248,251,255,0.96);
                 font-size: 12px;
             }
+            QCheckBox {
+                spacing: 8px;
+            }
+            QCheckBox::indicator {
+                width: 16px;
+                height: 16px;
+                border-radius: 4px;
+                border: 1px solid rgba(255,255,255,0.25);
+                background: rgba(255,255,255,0.06);
+            }
+            QCheckBox::indicator:hover {
+                border: 1px solid rgba(255,255,255,0.38);
+                background: rgba(255,255,255,0.10);
+            }
+            QCheckBox::indicator:checked {
+                background: rgba(255,255,255,0.14);
+                border: 1px solid rgba(125,211,252,0.95);
+            }
+            QCheckBox::indicator:checked:hover {
+                background: rgba(255,255,255,0.18);
+                border: 1px solid rgba(224,242,254,1.0);
+            }
             QLineEdit {
                 color: rgba(248,251,255,0.96);
                 background: rgba(255,255,255,0.08);
@@ -272,6 +297,41 @@ class ProbeSettingsDialog(QDialog):
             }
             """
         )
+        for checkbox in (
+            self.enabled,
+            self.replace_token,
+            self.show_token,
+            self.pihole_enabled,
+            self.replace_pihole_password,
+            self.show_pihole_password,
+        ):
+            checkbox.setStyleSheet(
+                f"""
+                QCheckBox {{
+                    spacing: 8px;
+                }}
+                QCheckBox::indicator {{
+                    width: 16px;
+                    height: 16px;
+                    border-radius: 4px;
+                    border: 1px solid rgba(255,255,255,0.25);
+                    background: rgba(255,255,255,0.06);
+                }}
+                QCheckBox::indicator:hover {{
+                    border: 1px solid rgba(255,255,255,0.38);
+                    background: rgba(255,255,255,0.10);
+                }}
+                QCheckBox::indicator:checked {{
+                    background: rgba(255,255,255,0.14);
+                    border: 1px solid rgba(125,211,252,0.95);
+                    image: url({checkbox_tick_icon});
+                }}
+                QCheckBox::indicator:checked:hover {{
+                    background: rgba(255,255,255,0.18);
+                    border: 1px solid rgba(224,242,254,1.0);
+                }}
+                """
+            )
 
     def _toggle_replace_token(self, checked: bool) -> None:
         self.token.setEnabled(checked)
