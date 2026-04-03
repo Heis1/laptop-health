@@ -10,7 +10,7 @@ import socket
 import uuid
 
 from PySide6.QtCore import QThread, Qt, Signal, QTimer
-from PySide6.QtGui import QGuiApplication, QTextCursor
+from PySide6.QtGui import QClipboard, QGuiApplication, QTextCursor
 from PySide6.QtWidgets import (
     QCheckBox,
     QDialog,
@@ -27,6 +27,9 @@ from PySide6.QtWidgets import (
 
 from ui_v2.services.probe import ProbeConfig, new_probe_config, secret_store_required, upsert_probe_config
 from ui_v2.widgets.prompt_dialog import PromptDialog
+
+
+_ANSI_RE = re.compile(r"\x1b\[[0-9;?]*[ -/]*[@-~]")
 
 
 class _DeployThread(QThread):
@@ -207,8 +210,8 @@ class _DeployThread(QThread):
             stdin.write(self.sudo_password + "\n")
             stdin.flush()
         stdin.channel.shutdown_write()
-        out = stdout.read().decode("utf-8", errors="replace")
-        err = stderr.read().decode("utf-8", errors="replace")
+        out = _sanitize_remote_output(stdout.read().decode("utf-8", errors="replace"), self.sudo_password)
+        err = _sanitize_remote_output(stderr.read().decode("utf-8", errors="replace"), self.sudo_password)
         rc = stdout.channel.recv_exit_status()
         if check and rc != 0:
             msg = (out + err).strip() or f"Remote command failed with exit code {rc}"
@@ -242,6 +245,25 @@ def _generate_token() -> str:
     import secrets
 
     return secrets.token_hex(32)
+
+
+def _sanitize_remote_output(text: str, secret: str = "") -> str:
+    cleaned = _ANSI_RE.sub("", text or "")
+    lines: list[str] = []
+    secret = secret.strip()
+    for raw_line in cleaned.splitlines():
+        line = raw_line.replace("\r", "").strip("\x00")
+        stripped = line.strip()
+        if not stripped:
+            lines.append("")
+            continue
+        if secret and stripped == secret:
+            continue
+        lines.append(line)
+    sanitized = "\n".join(lines)
+    if text.endswith("\n") and not sanitized.endswith("\n"):
+        sanitized += "\n"
+    return sanitized
 
 
 class ProbeDeployDialog(QDialog):
@@ -448,10 +470,14 @@ class ProbeDeployDialog(QDialog):
         actions.addStretch(1)
         self.cancel_btn = QPushButton("Cancel")
         self.cancel_btn.setObjectName("ActionBtn")
+        self.cancel_btn.setAutoDefault(False)
+        self.cancel_btn.setDefault(False)
         self.cancel_btn.clicked.connect(self.reject)
         actions.addWidget(self.cancel_btn)
         self.start_btn = QPushButton("Start Install")
         self.start_btn.setObjectName("ActionBtn")
+        self.start_btn.setAutoDefault(True)
+        self.start_btn.setDefault(True)
         self.start_btn.clicked.connect(self._start)
         actions.addWidget(self.start_btn)
         lay.addLayout(actions)
@@ -549,7 +575,8 @@ class ProbeDeployDialog(QDialog):
                 background: rgba(255,255,255,0.08);
                 border: 1px solid rgba(255,255,255,0.14);
                 border-radius: 10px;
-                padding: 7px 12px;
+                padding: 8px 12px 10px 12px;
+                min-height: 22px;
                 font-size: 12px;
                 font-weight: 600;
             }
@@ -629,6 +656,16 @@ class ProbeDeployDialog(QDialog):
         if checked:
             self.token_input.clear()
             self.show_token.setChecked(False)
+
+    def keyPressEvent(self, event) -> None:
+        if event.key() in {Qt.Key_Return, Qt.Key_Enter}:
+            if self.start_btn.isEnabled():
+                self.start_btn.click()
+                return
+        if event.key() == Qt.Key_Escape:
+            self.reject()
+            return
+        super().keyPressEvent(event)
 
     def _append(self, text: str) -> None:
         self.log.moveCursor(QTextCursor.End)
@@ -836,7 +873,10 @@ class ProbeDeployDialog(QDialog):
             self._append("Install `secret-tool` / libsecret support, then retry.\n")
             self._set_status("Blocked", "Desktop secret storage is required before the app can save probe credentials.", "red")
             return
-        if not _ensure_host_trusted(self, host):
+        trusted, trust_message = _ensure_host_trusted(self, host)
+        if not trusted:
+            if trust_message:
+                self._append(trust_message + "\n")
             self._append("SSH host trust was not established. Install cancelled.\n")
             self._set_status("Blocked", "Trust the device SSH host key before running the install.", "orange")
             return
@@ -924,8 +964,34 @@ class ProbeDeployDialog(QDialog):
             return
         if self._last_failure_summary:
             text = f"Failure summary: {self._last_failure_summary}\n\n{text}"
-        QGuiApplication.clipboard().setText(text)
-        self._set_status("Failed", "Install failed. The log has been copied to the clipboard.", "red")
+        clipboard = QGuiApplication.clipboard()
+        clipboard.setText(text, QClipboard.Clipboard)
+        if clipboard.supportsSelection():
+            clipboard.setText(text, QClipboard.Selection)
+
+        copied = clipboard.text(QClipboard.Clipboard).strip() == text
+        if copied:
+            self.copy_log_btn.setText("Copied")
+            self.copy_log_btn.setEnabled(False)
+            QTimer.singleShot(1600, self._reset_copy_log_button)
+            self._set_status("Failed", "Install failed. The log has been copied to the clipboard.", "red")
+            return
+
+        self.log.setFocus()
+        self.log.selectAll()
+        self._set_status("Failed", "Clipboard copy could not be confirmed. The full log is selected below; press Ctrl+C to copy it manually.", "red")
+        PromptDialog(
+            self,
+            "Clipboard Copy Failed",
+            "Laptop Health could not confirm that the install log reached the desktop clipboard.\n\n"
+            "The full log has been selected in the install window. Press Ctrl+C to copy it manually.",
+            accent="red",
+            ok_text="Close",
+        ).exec()
+
+    def _reset_copy_log_button(self) -> None:
+        self.copy_log_btn.setText("Copy Install Log")
+        self.copy_log_btn.setEnabled(bool(self.log.toPlainText().strip()))
 
     def _close_if_pending(self) -> None:
         if self._auto_close_pending and self.isVisible():
@@ -995,14 +1061,14 @@ def _store_host_key(host: str, key) -> None:
         pass
 
 
-def _ensure_host_trusted(parent, host: str) -> bool:
+def _ensure_host_trusted(parent, host: str) -> tuple[bool, str]:
     if _host_is_known(host):
-        return True
+        return True, ""
 
     try:
         key = _fetch_remote_host_key(host)
     except Exception as exc:
-        PromptDialog(
+        dlg = PromptDialog(
             parent,
             "SSH Host Verification Failed",
             (
@@ -1013,8 +1079,9 @@ def _ensure_host_trusted(parent, host: str) -> bool:
             accent="red",
             ok_text="Close",
             cancel_text="Cancel",
-        ).exec()
-        return False
+        )
+        dlg.exec()
+        return False, f"Could not fetch SSH host key for {host}: {exc}"
 
     prompt = PromptDialog(
         parent,
@@ -1031,12 +1098,16 @@ def _ensure_host_trusted(parent, host: str) -> bool:
         cancel_text="Cancel",
     )
     if prompt.exec() != QDialog.Accepted:
-        return False
+        return False, (
+            f"SSH host key for {host} is not yet trusted.\n"
+            "Review the fingerprint prompt and choose 'Trust and Continue', "
+            "or trust it manually with `ssh <user>@<host>` first."
+        )
 
     try:
         _store_host_key(host, key)
     except Exception as exc:
-        PromptDialog(
+        dlg = PromptDialog(
             parent,
             "Failed To Save SSH Trust",
             (
@@ -1046,6 +1117,7 @@ def _ensure_host_trusted(parent, host: str) -> bool:
             accent="red",
             ok_text="Close",
             cancel_text="Cancel",
-        ).exec()
-        return False
-    return True
+        )
+        dlg.exec()
+        return False, f"Could not save SSH trust for {host}: {exc}"
+    return True, ""

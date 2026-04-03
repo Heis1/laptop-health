@@ -52,6 +52,7 @@ class PromptDialog(QDialog):
         row.addStretch(1)
 
         card = QFrame()
+        self._card = card
         card.setObjectName("PromptCard")
         card.setFixedWidth(500)
 
@@ -104,7 +105,13 @@ class PromptDialog(QDialog):
         root.addWidget(scrim)
 
         if cancel_text is not None:
-            scrim.mousePressEvent = lambda e: self.reject()
+            def _scrim_click(event) -> None:
+                try:
+                    if not self._card.geometry().contains(event.position().toPoint()):
+                        self.reject()
+                except Exception:
+                    self.reject()
+            scrim.mousePressEvent = _scrim_click
 
         self.setStyleSheet(
             f"""
@@ -155,6 +162,8 @@ class PromptDialog(QDialog):
             }}
             """
         )
+        self.raise_()
+        self.activateWindow()
 
     def keyPressEvent(self, event) -> None:
         if event.key() == Qt.Key_Escape:

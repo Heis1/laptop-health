@@ -228,7 +228,8 @@ class ProbeSettingsDialog(QDialog):
                 background: rgba(255,255,255,0.08);
                 border: 1px solid rgba(255,255,255,0.14);
                 border-radius: 10px;
-                padding: 7px 12px;
+                padding: 8px 12px 10px 12px;
+                min-height: 22px;
                 font-size: 12px;
                 font-weight: 600;
                 selection-background-color: rgba(96,165,250,0.32);

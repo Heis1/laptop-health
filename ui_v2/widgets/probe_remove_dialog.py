@@ -375,7 +375,10 @@ class ProbeRemoveDialog(QDialog):
         if not host or not user:
             self._append("Host and SSH user are required.\n")
             return
-        if not _ensure_host_trusted(self, host):
+        trusted, trust_message = _ensure_host_trusted(self, host)
+        if not trusted:
+            if trust_message:
+                self._append(trust_message + "\n")
             self._append("SSH host trust was not established. Remove cancelled.\n")
             self._set_status("Blocked", "Trust the device SSH host key before running the uninstall.", "orange")
             return
@@ -473,14 +476,14 @@ def _store_host_key(host: str, key) -> None:
         pass
 
 
-def _ensure_host_trusted(parent, host: str) -> bool:
+def _ensure_host_trusted(parent, host: str) -> tuple[bool, str]:
     if _host_is_known(host):
-        return True
+        return True, ""
 
     try:
         key = _fetch_remote_host_key(host)
     except Exception as exc:
-        PromptDialog(
+        dlg = PromptDialog(
             parent,
             "SSH Host Verification Failed",
             (
@@ -491,8 +494,9 @@ def _ensure_host_trusted(parent, host: str) -> bool:
             accent="red",
             ok_text="Close",
             cancel_text="Cancel",
-        ).exec()
-        return False
+        )
+        dlg.exec()
+        return False, f"Could not fetch SSH host key for {host}: {exc}"
 
     prompt = PromptDialog(
         parent,
@@ -509,12 +513,16 @@ def _ensure_host_trusted(parent, host: str) -> bool:
         cancel_text="Cancel",
     )
     if prompt.exec() != QDialog.Accepted:
-        return False
+        return False, (
+            f"SSH host key for {host} is not yet trusted.\n"
+            "Review the fingerprint prompt and choose 'Trust and Continue', "
+            "or trust it manually with `ssh <user>@<host>` first."
+        )
 
     try:
         _store_host_key(host, key)
     except Exception as exc:
-        PromptDialog(
+        dlg = PromptDialog(
             parent,
             "Failed To Save SSH Trust",
             (
@@ -524,6 +532,7 @@ def _ensure_host_trusted(parent, host: str) -> bool:
             accent="red",
             ok_text="Close",
             cancel_text="Cancel",
-        ).exec()
-        return False
-    return True
+        )
+        dlg.exec()
+        return False, f"Could not save SSH trust for {host}: {exc}"
+    return True, ""
