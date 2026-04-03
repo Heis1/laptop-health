@@ -16,6 +16,16 @@ from typing import Any
 from urllib.parse import urlparse
 
 
+def env_int(name: str, default: int) -> int:
+    raw = os.getenv(name)
+    if raw is None:
+        return default
+    try:
+        return int(raw)
+    except ValueError:
+        return default
+
+
 REQUEST_WINDOW_S = env_int("PI_PROBE_REQUEST_WINDOW_S", 60)
 MAX_REQUESTS_PER_WINDOW = env_int("PI_PROBE_MAX_REQUESTS_PER_WINDOW", 60)
 AUTH_FAIL_WINDOW_S = env_int("PI_PROBE_AUTH_FAIL_WINDOW_S", 300)
@@ -29,16 +39,6 @@ _AUTH_LOCKED_UNTIL: dict[str, float] = {}
 _CPU_SAMPLE_LOCK = threading.Lock()
 _CPU_LAST_TOTAL: int | None = None
 _CPU_LAST_IDLE: int | None = None
-
-
-def env_int(name: str, default: int) -> int:
-    raw = os.getenv(name)
-    if raw is None:
-        return default
-    try:
-        return int(raw)
-    except ValueError:
-        return default
 
 
 def load_expected_token() -> str:
