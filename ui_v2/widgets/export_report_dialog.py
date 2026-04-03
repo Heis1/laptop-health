@@ -16,34 +16,57 @@ from PySide6.QtWidgets import (
 class ExportReportDialog(QDialog):
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
-        self.setWindowTitle("Export system report")
         self.setModal(True)
+        self.setWindowFlags(Qt.Dialog | Qt.FramelessWindowHint)
+        self.setAttribute(Qt.WA_TranslucentBackground, True)
         self.setObjectName("ExportReportDialog")
 
+        host = parent.window() if parent is not None else None
+        if host is not None:
+            self.setGeometry(host.geometry())
+
         root = QVBoxLayout(self)
-        root.setContentsMargins(16, 16, 16, 16)
-        root.setSpacing(10)
+        root.setContentsMargins(0, 0, 0, 0)
+        root.setSpacing(0)
+
+        scrim = QFrame()
+        scrim.setObjectName("ExportScrim")
+        scrim_l = QVBoxLayout(scrim)
+        scrim_l.setContentsMargins(0, 0, 0, 0)
+        scrim_l.setSpacing(0)
+
+        row = QHBoxLayout()
+        row.setContentsMargins(0, 0, 0, 0)
+        row.setSpacing(0)
+        row.addStretch(1)
+
+        card = QFrame()
+        card.setObjectName("ExportCard")
+        card.setFixedWidth(420)
+        card_l = QVBoxLayout(card)
+        card_l.setContentsMargins(16, 16, 16, 16)
+        card_l.setSpacing(10)
 
         title = QLabel("Choose report sections")
         title.setObjectName("DialogTitle")
-        root.addWidget(title)
+        card_l.addWidget(title)
 
         subtitle = QLabel("Select which sections to include in the PDF report.")
         subtitle.setObjectName("DialogSubtitle")
         subtitle.setWordWrap(True)
-        root.addWidget(subtitle)
+        card_l.addWidget(subtitle)
 
-        root.addWidget(_sep())
+        card_l.addWidget(_sep())
 
         hint = QLabel("Dashboard and Updates are optional. Use All pages for the remaining sections.")
         hint.setObjectName("DialogHint")
         hint.setWordWrap(True)
-        root.addWidget(hint)
+        card_l.addWidget(hint)
 
         self.chk_all = QCheckBox("All pages")
         self.chk_all.setTristate(False)
         self.chk_all.setToolTip("Toggle Power, Storage, Network, and Dev/Tools")
-        root.addWidget(self.chk_all)
+        card_l.addWidget(self.chk_all)
 
         self.chk_dashboard = QCheckBox("Dashboard screenshot")
         self.chk_updates = QCheckBox("Updates summary")
@@ -66,18 +89,18 @@ class ExportReportDialog(QDialog):
         group_b.addWidget(self.chk_network)
         group_b.addWidget(self.chk_devtools)
 
-        root.addLayout(group_a)
-        root.addWidget(_sep())
-        root.addLayout(group_b)
+        card_l.addLayout(group_a)
+        card_l.addWidget(_sep())
+        card_l.addLayout(group_b)
 
-        root.addWidget(_sep())
+        card_l.addWidget(_sep())
 
         self.buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
         self.buttons.accepted.connect(self.accept)
         self.buttons.rejected.connect(self.reject)
         self.btn_all = self.buttons.addButton("Select all", QDialogButtonBox.ActionRole)
         self.btn_none = self.buttons.addButton("Select none", QDialogButtonBox.ActionRole)
-        root.addWidget(self.buttons)
+        card_l.addWidget(self.buttons)
 
         self.chk_all.toggled.connect(self._on_all_toggle)
         for chk in self._section_checkboxes():
@@ -91,6 +114,12 @@ class ExportReportDialog(QDialog):
 
         self.setMinimumWidth(360)
         self._apply_theme()
+        row.addWidget(card)
+        row.addStretch(1)
+        scrim_l.addStretch(1)
+        scrim_l.addLayout(row)
+        scrim_l.addStretch(1)
+        root.addWidget(scrim)
 
     def selected_sections(self) -> dict[str, bool]:
         return {
@@ -156,8 +185,14 @@ class ExportReportDialog(QDialog):
     def _apply_theme(self) -> None:
         self.setStyleSheet(
             """
-            QDialog#ExportReportDialog {
+            QFrame#ExportScrim {
+                background: rgba(0, 0, 0, 0.55);
+            }
+            QFrame#ExportCard {
                 background: #0b1220;
+                border: 1px solid rgba(255,255,255,0.14);
+                border-left: 6px solid rgba(96,165,250,0.95);
+                border-radius: 16px;
             }
             QLabel#DialogTitle {
                 color: #e8f0ff;
@@ -208,6 +243,12 @@ class ExportReportDialog(QDialog):
             }
             """
         )
+
+    def keyPressEvent(self, e) -> None:
+        if e.key() == Qt.Key_Escape:
+            self.reject()
+            return
+        super().keyPressEvent(e)
 
 
 def _sep() -> QFrame:

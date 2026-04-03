@@ -16,6 +16,12 @@ from ui_v2.services.overview_metrics import gather_overview, OverviewMetrics, ga
 from ui_v2.services.gpu_metrics import get_gpu, GpuInfo
 from ui_v2.services.refresh_controller import RefreshController, RefreshState
 
+try:
+    from shiboken6 import isValid as _is_valid  # type: ignore
+except Exception:
+    def _is_valid(obj: object) -> bool:
+        return obj is not None
+
 
 def _fix_top_row_heights(*widgets, h: int = 165) -> None:
     # Keep a readable minimum height but still allow resize.
@@ -541,6 +547,8 @@ class DashboardPage(QWidget):
         w_gpu.signals.finished.connect(_done_gpu)
         self.pool.start(w_gpu)
     def _apply_gpu(self, r):
+        if not _is_valid(self) or not _is_valid(getattr(self, "gpu", None)):
+            return
         # Ignore garbage / failures (don’t overwrite UI with — every tick)
         if not isinstance(r, GpuInfo):
             return
@@ -581,6 +589,11 @@ class DashboardPage(QWidget):
 
 
     def _apply(self, result):
+        if not _is_valid(self):
+            return
+        for obj_name in ("cpu", "disk", "wakeups", "net", "updates", "probe"):
+            if not _is_valid(getattr(self, obj_name, None)):
+                return
         def _cache(k: str, v):
             if v is not None:
                 self._fast_cache[k] = v
@@ -618,7 +631,9 @@ class DashboardPage(QWidget):
         root_used = self._disk_root_used
         root_free = self._disk_root_free
 
-        if self._disk_target == "home":
+        if self._disk_target not in {"root", "home", "/"}:
+            pass
+        elif self._disk_target == "home":
             self.disk.set_disk(
                 home_used,
                 home_free,

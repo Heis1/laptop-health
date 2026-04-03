@@ -114,6 +114,8 @@ class StorageIOCard(QFrame):
 
         # meta line
         parts = []
+        if m.active is not None:
+            parts.append("Active" if m.active else "Idle")
         if m.devpath:
             parts.append(f"Part: {m.devpath}")
         if m.io_devname:

@@ -6,7 +6,7 @@ import shutil
 import shlex
 import socket
 import subprocess
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from xml.etree import ElementTree as ET
 
 import system as system_utils
@@ -19,6 +19,8 @@ class DiscoveredDevice:
     mac: str | None = None
     vendor: str | None = None
     os_name: str | None = None
+    services_summary: str | None = None
+    open_ports: list[dict[str, str]] = field(default_factory=list)
 
 
 @dataclass
@@ -173,6 +175,44 @@ def _parse_xml_nmap(output: str) -> list[DiscoveredDevice]:
             if best_match is not None:
                 os_name = (best_match.get("name") or "").strip() or None
 
+        service_bits: list[str] = []
+        open_ports: list[dict[str, str]] = []
+        ports_el = host.find("ports")
+        if ports_el is not None:
+            for port in ports_el.findall("port"):
+                state_el = port.find("state")
+                if state_el is None or (state_el.get("state") or "").lower() != "open":
+                    continue
+                portid = (port.get("portid") or "").strip()
+                proto = (port.get("protocol") or "").strip()
+                service_el = port.find("service")
+                svc = ""
+                if service_el is not None:
+                    parts = [
+                        (service_el.get("name") or "").strip(),
+                        (service_el.get("product") or "").strip(),
+                        (service_el.get("version") or "").strip(),
+                    ]
+                    svc = " ".join([part for part in parts if part]).strip()
+                if portid:
+                    label = f"{portid}/{proto}" if proto else portid
+                    if svc:
+                        label += f" {svc}"
+                    service_bits.append(label)
+                    open_ports.append(
+                        {
+                            "port": portid,
+                            "protocol": proto or "",
+                            "service": (service_el.get("name") or "").strip() if service_el is not None else "",
+                            "product": (service_el.get("product") or "").strip() if service_el is not None else "",
+                            "version": (service_el.get("version") or "").strip() if service_el is not None else "",
+                            "reason": (state_el.get("reason") or "").strip(),
+                        }
+                    )
+        services_summary = ", ".join(service_bits[:6]) if service_bits else None
+        if len(service_bits) > 6:
+            services_summary += f", +{len(service_bits) - 6} more"
+
         devices.append(
             DiscoveredDevice(
                 ip=ip,
@@ -180,6 +220,8 @@ def _parse_xml_nmap(output: str) -> list[DiscoveredDevice]:
                 mac=mac,
                 vendor=vendor,
                 os_name=os_name,
+                services_summary=services_summary,
+                open_ports=open_ports,
             )
         )
 
@@ -200,6 +242,8 @@ def _merge_devices(base: list[DiscoveredDevice], extra: list[DiscoveredDevice]) 
             mac=dev.mac or current.mac,
             vendor=dev.vendor or current.vendor,
             os_name=dev.os_name or current.os_name,
+            services_summary=dev.services_summary or current.services_summary,
+            open_ports=dev.open_ports or current.open_ports,
         )
     return sorted(merged.values(), key=lambda d: tuple(int(part) for part in d.ip.split(".")))
 
@@ -217,6 +261,8 @@ def _enrich_devices(devices: list[DiscoveredDevice], iface: str) -> list[Discove
                 mac=dev.mac or mac,
                 vendor=dev.vendor or vendor,
                 os_name=dev.os_name,
+                services_summary=dev.services_summary,
+                open_ports=list(dev.open_ports),
             )
         )
     return enriched
@@ -262,7 +308,7 @@ def discover_network_devices(
             baseline_devices = []
 
         primary_rc, primary_out, primary_err, privileged_note = _run_privileged_completed(
-            ["nmap", "-sS", "-T4", "-O", "-Pn", *extra_args, target, "-oX", "-"],
+            ["nmap", "-sS", "-T4", "-O", "-Pn", "-sV", "--version-light", "--reason", "--open", *extra_args, target, "-oX", "-"],
             timeout_s=240.0,
         )
         if primary_rc == 0 and primary_out.strip():
@@ -273,7 +319,7 @@ def discover_network_devices(
                 note=privileged_note,
             )
 
-        fallback = _run_completed(["nmap", "-sT", "-T4", "-Pn", "-F", "-sV", *extra_args, target, "-oX", "-"])
+        fallback = _run_completed(["nmap", "-sT", "-T4", "-Pn", "-F", "-sV", "--version-light", "--reason", "--open", *extra_args, target, "-oX", "-"])
         if fallback.returncode == 0 and fallback.stdout.strip():
             note = "Noisy scan fell back to non-privileged mode; host discovery data was preserved, but OS detection may be unavailable."
             if privileged_note:

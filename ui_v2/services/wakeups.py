@@ -45,6 +45,27 @@ def sudo_cached() -> bool:
     except Exception:
         return False
 
+
+def sudo_ready_state() -> tuple[str, str]:
+    sudo = _trusted_path("sudo")
+    if not sudo:
+        return "missing_sudo", "sudo is not available on this system."
+    try:
+        subprocess.check_output([sudo, "-n", "true"], stderr=subprocess.STDOUT, text=True)
+        return "ready", "sudo is ready for non-interactive powertop access."
+    except subprocess.CalledProcessError as exc:
+        out = (exc.output or "").strip()
+        lowered = out.lower()
+        if "a password is required" in lowered:
+            return "needs_auth", "Run `sudo -v` in a terminal, then return here and click Refresh."
+        if "no new privileges" in lowered:
+            return "sudo_blocked", "sudo is blocked in this environment (`no new privileges` is set)."
+        if "sudo.conf is owned" in lowered:
+            return "sudo_broken", "sudo is misconfigured on this system (`/etc/sudo.conf` ownership is wrong)."
+        return "sudo_error", out or "sudo is present but not usable for deep analysis."
+    except Exception as exc:
+        return "sudo_error", str(exc)
+
 def _read_proc_stat_counts() -> tuple[int, int]:
     ctxt = 0
     intr = 0
@@ -135,6 +156,31 @@ def wakeups_hint_deep() -> str:
     if not sudo_cached():
         return "Run `sudo -v` first"
     return "Deep sample uses powertop (~20s)"
+
+
+def deep_sample_ready() -> tuple[bool, str]:
+    if not powertop_installed():
+        return False, "powertop is not installed"
+    if not sudo_cached():
+        return False, "Run `sudo -v` in a terminal first"
+    return True, "Deep analysis available"
+
+
+def deep_sample_state() -> tuple[str, str]:
+    if not powertop_installed():
+        return "missing_powertop", "Install `powertop` to enable deep analysis."
+    sudo_state, sudo_msg = sudo_ready_state()
+    if sudo_state != "ready":
+        return sudo_state, sudo_msg
+    return "ready", "Deep analysis is available."
+
+
+def deep_sample_debug_text() -> str:
+    parts = [f"powertop_installed={powertop_installed()}"]
+    state, msg = sudo_ready_state()
+    parts.append(f"sudo_state={state}")
+    parts.append(f"sudo_msg={msg}")
+    return " | ".join(parts)
 
 def sample_wakeups_powertop_slow(timeout_s: int = 25) -> float | None:
     """
