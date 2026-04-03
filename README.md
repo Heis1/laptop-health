@@ -9,7 +9,7 @@ A modern Linux system health dashboard for laptops.
 
 Laptop Health provides a clean, modular interface for monitoring system performance, thermals, storage, network activity, and power state — built with PySide6 and designed for Linux Mint / Ubuntu environments.
 
-Current stable release: `v1.2.0`
+Current stable release: `v1.2.1`
 
 ## Project Status
 
@@ -59,13 +59,13 @@ This will fetch the latest release asset (preferring `amd64`).
 Install using:
 
 ```bash
-pkexec apt install ./laptop-health_1.2.0-1_amd64.deb
+pkexec apt install ./laptop-health_1.2.1-1_amd64.deb
 ```
 
 Or manually:
 
 ```bash
-sudo dpkg -i laptop-health_1.2.0-1_amd64.deb
+sudo dpkg -i laptop-health_1.2.1-1_amd64.deb
 sudo apt -f install
 ```
 
@@ -319,13 +319,13 @@ The in-app install/remove flow now uses explicit SSH host-key trust on first con
 Build a release `.deb` with:
 
 ```bash
-VERSION=1.2.0 ./release.sh
+VERSION=1.2.1 ./release.sh
 ```
 
 This produces:
 
 ```text
-pkg/laptop-health_1.2.0-1_amd64.deb
+pkg/laptop-health_1.2.1-1_amd64.deb
 ```
 
 The release script builds the PyInstaller bundle and then stages the Debian package with the required runtime dependencies.
@@ -334,7 +334,7 @@ The release script builds the PyInstaller bundle and then stages the Debian pack
 
 ## Versioning
 
-Releases follow semantic versioning, for example `v1.2.0`.
+Releases follow semantic versioning, for example `v1.2.1`.
 
 Binary installers are attached to GitHub Releases.
 
