@@ -19,7 +19,7 @@ The current version includes:
 - live sparklines and enhanced system metrics
 - integrated update checking and download support
 - configurable network discovery and improved live network monitoring
-- Raspberry Pi probe support for remote monitoring inside the desktop app
+- Raspberry Pi probe support for remote monitoring inside the desktop app (currently beta)
 
 ---
 
@@ -43,7 +43,12 @@ The current version includes:
 
 ## Installation (Debian / Ubuntu / Mint)
 
-Download the latest `.deb` from the Releases page.
+Download the latest stable `.deb` from the Releases page.
+
+If you want to test Raspberry Pi probe support, use the current beta pre-release instead:
+
+- `v1.2.0-beta.1`
+- https://github.com/Heis1/laptop-health/releases/tag/v1.2.0-beta.1
 
 Or download directly:
 
@@ -156,7 +161,7 @@ The repository includes a headless probe at `probe/pi_probe.py`.
 
 Probe installs target Linux devices, especially Raspberry Pi OS and other Debian-family systems with `ssh`, `sudo`, and `systemd` available.
 
-This feature is currently under active development on `feature/pi-probe-integration`.
+Raspberry Pi probe support is currently available as a beta pre-release on `main`.
 
 Current in-progress scope:
 
