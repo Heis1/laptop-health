@@ -343,6 +343,7 @@ def main() -> None:
         if not tls_cert or not tls_key:
             raise RuntimeError("Both PI_PROBE_TLS_CERT and PI_PROBE_TLS_KEY must be set to enable TLS")
         context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+        context.minimum_version = ssl.TLSVersion.TLSv1_2
         context.load_cert_chain(certfile=tls_cert, keyfile=tls_key)
         server.socket = context.wrap_socket(server.socket, server_side=True)
         scheme = "https"
