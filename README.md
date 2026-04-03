@@ -5,42 +5,31 @@
 [![License](https://img.shields.io/github/license/Heis1/laptop-health)](https://github.com/Heis1/laptop-health/blob/main/LICENSE)
 [![Python](https://img.shields.io/badge/python-3.10%2B-blue)](https://www.python.org/)
 
-A modern Linux system health dashboard for laptops.
+A Linux health dashboard for laptops with first-class Raspberry Pi probe support.
 
-Laptop Health provides a clean, modular interface for monitoring system performance, thermals, storage, network activity, and power state — built with PySide6 and designed for Linux Mint / Ubuntu environments.
+Laptop Health is a PySide6 desktop app for monitoring thermals, power, storage, wakeups, network activity, package updates, and remote probe endpoints from one interface. It is built for Linux Mint, Ubuntu, and similar Debian-based systems.
 
 Current stable release: `v1.2.1`
 
-## Project Status
+## What It Does
 
-Stable release branch: main  
-
-The current version includes:
-- redesigned dashboard (UI v2)
-- modular service architecture
-- live sparklines and enhanced system metrics
-- integrated update checking and download support
-- configurable network discovery and improved live network monitoring
-- Raspberry Pi probe support for remote monitoring inside the desktop app
+- Monitor CPU, GPU, SSD, memory, thermal, wakeup, storage, and live network state
+- Inspect power profiles, update status, and package activity from the same app
+- Discover devices on the local network with quiet and noisy scan modes
+- Add one or more Raspberry Pi probes for remote system visibility inside the desktop UI
+- Surface optional Pi-hole status and activity alongside probe data
+- Install updates from GitHub releases with native `.deb` packaging
 
 ---
 
-## Features
+## Highlights
 
-- CPU temperature and load monitoring
-- GPU and SSD temperature visibility
-- Wake-up / power state awareness
-- Power profile detection
-- Remote Raspberry Pi probe card in the desktop dashboard
-- Network diagnostics module
-- Configurable device discovery with quiet/noisy scans
-- Optional speed testing support
-- Dark mode support
-- Clean, card-based UI layout
-- Sidebar version display
-- GitHub update checking
-- In-app update download support (.deb)
-- Multi-probe remote monitoring with optional Pi-hole integration
+- Redesigned UI v2 dashboard with live sparklines and modular cards
+- Probe management built into the app, including multi-probe support
+- Optional Pi-hole integration per probe
+- Configurable live network monitoring and local discovery tooling
+- Native Debian package releases for straightforward install and update flow
+- Dark mode support and a cleaner custom desktop shell
 
 ---
 
