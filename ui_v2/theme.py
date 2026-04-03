@@ -77,12 +77,9 @@ def _qss_base() -> str:
         min-height: 34px;
         max-width: 34px;
         max-height: 34px;
-        border-radius: 17px;
-        background: qlineargradient(
-            x1:0, y1:0, x2:1, y2:1,
-            stop:0 rgba(96,165,250,0.96),
-            stop:1 rgba(52,211,153,0.82)
-        );
+        padding: 0px;
+        background: transparent;
+        border: none;
         color: white;
         font-size: 12px;
         font-weight: 900;
@@ -536,12 +533,9 @@ QHeaderView::section {{
     min-height: 34px;
     max-width: 34px;
     max-height: 34px;
-    border-radius: 17px;
-    background: qlineargradient(
-        x1:0, y1:0, x2:1, y2:1,
-        stop:0 #2f6fed,
-        stop:1 #20b486
-    );
+    padding: 0px;
+    background: transparent;
+    border: none;
     color: white;
     font-size: 12px;
     font-weight: 900;

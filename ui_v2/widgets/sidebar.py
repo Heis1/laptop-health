@@ -2,14 +2,18 @@ from __future__ import annotations
 
 import os
 import webbrowser
+from pathlib import Path
 from PySide6.QtCore import Qt
 DEV_MODE = os.getenv("LAPTOP_HEALTH_DEV", "").strip().lower() in ("1","true","yes","on")
 SIMULATE_UPDATE_AVAILABLE = os.getenv("LAPTOP_HEALTH_DEV_UPDATE_AVAILABLE", "").strip().lower() in ("1","true","yes","on")
 
+from PySide6.QtGui import QIcon
 from PySide6.QtWidgets import QFrame, QVBoxLayout, QPushButton, QLabel, QStyle, QHBoxLayout, QWidget
 from ui_v2.services.devtools_state import get_sidebar_update_mode
 from ui_v2.version import APP_VERSION, APP_RELEASE_DATE
 from ui_v2.services.update_checker import check_for_updates
+
+PROBE_ICON_PATH = str(Path(__file__).resolve().parents[2] / "assets" / "probe-sidebar.svg")
 
 
 class Sidebar(QFrame):
@@ -30,7 +34,20 @@ class Sidebar(QFrame):
         v.setContentsMargins(16, 16, 16, 16)
         v.setSpacing(12)
 
-        def mk(key: str, text: str, icon_enum) -> QPushButton:
+        def themed_icon(*names: str, fallback) -> QIcon:
+            for name in names:
+                icon = QIcon.fromTheme(name)
+                if not icon.isNull():
+                    return icon
+            return self.style().standardIcon(fallback)
+
+        def local_icon(path: str, fallback) -> QIcon:
+            icon = QIcon(path)
+            if not icon.isNull():
+                return icon
+            return self.style().standardIcon(fallback)
+
+        def mk(key: str, text: str, icon_enum, icon: QIcon | None = None) -> QPushButton:
             row = QFrame()
             row.setObjectName("NavRow")
             row.setProperty("active", "0")
@@ -41,7 +58,7 @@ class Sidebar(QFrame):
 
             btn = QPushButton(text)
             btn.setObjectName("NavBtn")
-            btn.setIcon(self.style().standardIcon(icon_enum))
+            btn.setIcon(icon or self.style().standardIcon(icon_enum))
             self.buttons[key] = btn
             row_l.addWidget(btn, 1)
 
@@ -58,7 +75,12 @@ class Sidebar(QFrame):
         mk("power", "Power && Thermal", QStyle.SP_ComputerIcon)
         mk("network", "Network", QStyle.SP_DriveNetIcon)
         mk("storage", "Storage", QStyle.SP_DriveHDIcon)
-        mk("remote", "Probe/s", QStyle.SP_DirLinkIcon)
+        mk(
+            "remote",
+            "Probes",
+            QStyle.SP_ComputerIcon,
+            local_icon(PROBE_ICON_PATH, QStyle.SP_ComputerIcon),
+        )
         mk("updates", "Updates", QStyle.SP_BrowserReload)
 
         if DEV_MODE:

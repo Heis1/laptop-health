@@ -31,6 +31,9 @@ from ui_v2.widgets.probe_settings_dialog import ProbeSettingsDialog
 
 UI_PREFS_PATH = os.path.join(os.path.expanduser("~"), ".config", "laptop-health", "ui_prefs.json")
 APP_ICON_PATH = str(Path(__file__).resolve().parents[1] / "assets" / "laptop-health.png")
+TITLEBAR_ICON_PATH = str(
+    Path(__file__).resolve().parents[1] / "assets" / "laptop-health-titlebar.png"
+)
 
 
 def _load_theme_mode() -> str:
@@ -231,11 +234,12 @@ class MainWindow(QMainWindow):
         self.title_mark = QLabel()
         self.title_mark.setObjectName("TitleBarMark")
         self.title_mark.setAlignment(Qt.AlignCenter)
-        if os.path.exists(APP_ICON_PATH):
-            title_pixmap = QPixmap(APP_ICON_PATH)
+        title_icon_path = TITLEBAR_ICON_PATH if os.path.exists(TITLEBAR_ICON_PATH) else APP_ICON_PATH
+        if os.path.exists(title_icon_path):
+            title_pixmap = QPixmap(title_icon_path)
             if not title_pixmap.isNull():
                 self.title_mark.setPixmap(
-                    title_pixmap.scaled(24, 24, Qt.KeepAspectRatio, Qt.SmoothTransformation)
+                    title_pixmap.scaled(34, 34, Qt.KeepAspectRatio, Qt.SmoothTransformation)
                 )
         if self.title_mark.pixmap() is None:
             self.title_mark.setText("LH")
