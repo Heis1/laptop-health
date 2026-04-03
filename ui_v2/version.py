@@ -1,2 +1,2 @@
-APP_VERSION = "v1.2.0-beta.1"
+APP_VERSION = "v1.2.0-beta.2"
 APP_RELEASE_DATE = "2026-04-03"
