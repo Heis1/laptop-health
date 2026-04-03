@@ -47,8 +47,8 @@ Download the latest stable `.deb` from the Releases page.
 
 If you want to test Raspberry Pi probe support, use the current beta pre-release instead:
 
-- `v1.2.0-beta.1`
-- https://github.com/Heis1/laptop-health/releases/tag/v1.2.0-beta.1
+- `v1.2.0-beta.2`
+- https://github.com/Heis1/laptop-health/releases/tag/v1.2.0-beta.2
 
 Or download directly:
 
@@ -161,7 +161,9 @@ The repository includes a headless probe at `probe/pi_probe.py`.
 
 Probe installs target Linux devices, especially Raspberry Pi OS and other Debian-family systems with `ssh`, `sudo`, and `systemd` available.
 
-Raspberry Pi probe support is currently available as a beta pre-release on `main`.
+Raspberry Pi probe support is currently available as the beta pre-release `v1.2.0-beta.2`:
+
+- https://github.com/Heis1/laptop-health/releases/tag/v1.2.0-beta.2
 
 Current in-progress scope:
 
