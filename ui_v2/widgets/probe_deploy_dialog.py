@@ -7,6 +7,7 @@ import os
 import re
 import shlex
 import socket
+import sys
 import uuid
 
 from PySide6.QtCore import QThread, Qt, Signal, QTimer
@@ -36,7 +37,7 @@ class _DeployThread(QThread):
     output = Signal(str)
     done = Signal(int)
 
-    def __init__(self, *, host: str, user: str, bind_host: str, port: int, tls_mode: str, tls_cn: str, token: str, ssh_password: str, sudo_password: str):
+    def __init__(self, *, host: str, user: str, bind_host: str, port: int, tls_mode: str, tls_cn: str, token: str, ssh_password: str, sudo_password: str, local_cert_out: str):
         super().__init__()
         self.host = host
         self.user = user
@@ -47,6 +48,7 @@ class _DeployThread(QThread):
         self.token = token
         self.ssh_password = ssh_password
         self.sudo_password = sudo_password or ssh_password
+        self.local_cert_out = local_cert_out
 
     def run(self) -> None:
         try:
@@ -56,10 +58,8 @@ class _DeployThread(QThread):
             self.done.emit(1)
             return
 
-        repo_root = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
-        local_probe_py = os.path.join(repo_root, "probe", "pi_probe.py")
-        local_service = os.path.join(repo_root, "probe", "pi-probe.service")
-        local_cert_out = os.path.join(repo_root, "probe", "probe.crt")
+        local_probe_py = _resource_path("probe", "pi_probe.py")
+        local_service = _resource_path("probe", "pi-probe.service")
 
         install_dir = "/opt/pi-probe"
         remote_cert_dir = f"{install_dir}/certs"
@@ -119,10 +119,10 @@ class _DeployThread(QThread):
                 )
                 sftp = client.open_sftp()
                 try:
-                    sftp.get(remote_cert_path, local_cert_out)
+                    sftp.get(remote_cert_path, self.local_cert_out)
                 finally:
                     sftp.close()
-                self.output.emit(f"Copied certificate to {local_cert_out}\n")
+                self.output.emit(f"Copied certificate to {self.local_cert_out}\n")
 
             self.output.emit("Writing probe token on the Pi\n")
             token_content = f"{self.token}\n"
@@ -175,7 +175,7 @@ class _DeployThread(QThread):
             self.output.emit("\nDeployment complete\n")
             self.output.emit(f"Dashboard URL: {dashboard_url}\n")
             if self.tls_mode == "self-signed":
-                self.output.emit(f"Laptop CA cert path: {local_cert_out}\n")
+                self.output.emit(f"Laptop CA cert path: {self.local_cert_out}\n")
             _, out, err = self._run_remote(client, f"systemctl --no-pager --full status {service_name} | sed -n '1,12p'", check=False)
             self.output.emit("Systemd status:\n")
             self.output.emit(out + err)
@@ -245,6 +245,32 @@ def _generate_token() -> str:
     import secrets
 
     return secrets.token_hex(32)
+
+
+def _resource_path(*parts: str) -> str:
+    candidates = []
+    meipass = getattr(sys, "_MEIPASS", "")
+    if meipass:
+        candidates.append(os.path.join(meipass, *parts))
+    exe_dir = os.path.dirname(os.path.abspath(sys.executable))
+    candidates.append(os.path.join(exe_dir, *parts))
+    repo_root = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
+    candidates.append(os.path.join(repo_root, *parts))
+    for path in candidates:
+        if os.path.exists(path):
+            return path
+    return candidates[0]
+
+
+def _local_probe_cert_path(probe_id: str, tls_cn: str, port: int) -> str:
+    base = os.path.join(os.path.expanduser("~"), ".config", "laptop-health", "certs")
+    os.makedirs(base, mode=0o700, exist_ok=True)
+    try:
+        os.chmod(base, 0o700)
+    except OSError:
+        pass
+    safe_host = re.sub(r"[^A-Za-z0-9._-]+", "-", tls_cn or "probe")
+    return os.path.join(base, f"{probe_id or 'probe'}-{safe_host}-{port}.crt")
 
 
 def _sanitize_remote_output(text: str, secret: str = "") -> str:
@@ -892,7 +918,7 @@ class ProbeDeployDialog(QDialog):
 
         self._saved_token = token
         self._saved_url = f"https://{tls_cn}:{port}/metrics" if tls_mode == "self-signed" else f"http://{host}:{port}/metrics"
-        self._saved_cert = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "probe", "probe.crt")) if tls_mode == "self-signed" else ""
+        self._saved_cert = _local_probe_cert_path(self._config.id, tls_cn, port) if tls_mode == "self-signed" else ""
 
         self._thread = _DeployThread(
             host=host,
@@ -904,6 +930,7 @@ class ProbeDeployDialog(QDialog):
             token=token,
             ssh_password=ssh_password,
             sudo_password=sudo_password,
+            local_cert_out=self._saved_cert,
         )
         self._thread.output.connect(self._append)
         self._thread.done.connect(self._finish)

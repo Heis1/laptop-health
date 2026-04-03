@@ -5,7 +5,10 @@ a = Analysis(
     ['ui_preview_v2.py'],
     pathex=[],
     binaries=[],
-    datas=[],
+    datas=[
+        ('probe/pi_probe.py', 'probe'),
+        ('probe/pi-probe.service', 'probe'),
+    ],
     hiddenimports=['paramiko'],
     hookspath=[],
     hooksconfig={},
