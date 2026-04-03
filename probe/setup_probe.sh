@@ -91,7 +91,7 @@ if [[ -z "${TARGET_HOST}" ]]; then
   exit 1
 fi
 
-TARGET_USER="$(prompt_default "Pi SSH user" "${USER}")"
+TARGET_USER="$(prompt_default "Pi SSH user" "pi")"
 PROBE_NAME="$(prompt_default "Probe name" "Raspberry Pi")"
 PROBE_BIND_HOST="$(prompt_default "Probe bind address" "0.0.0.0")"
 PROBE_PORT="$(prompt_default "Probe port" "9821")"

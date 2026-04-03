@@ -107,7 +107,7 @@ if [[ -f "${TIFF_PLUGIN}" ]]; then
 fi
 
 # Ensure build deps exist in venv
-python -c "import PySide6, psutil" >/dev/null 2>&1 || {
+python -c "import PySide6, psutil, paramiko" >/dev/null 2>&1 || {
   echo "[i] Installing Python build deps into venv ..."
   pip install --upgrade pip
   pip install --requirement "${BUILD_REQUIREMENTS}"

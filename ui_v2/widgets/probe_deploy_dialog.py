@@ -398,8 +398,7 @@ class ProbeDeployDialog(QDialog):
         self.bind_host_input.setPlaceholderText("0.0.0.0")
         form.addRow(self._label_row("Bind address", self._help_bind_host), self.bind_host_input)
 
-        import getpass
-        self.user_input = QLineEdit(getpass.getuser())
+        self.user_input = QLineEdit("pi")
         self.user_input.setPlaceholderText("Usually pi, aron, or your own SSH username")
         form.addRow(self._label_row("Pi SSH user", self._help_user), self.user_input)
 
