@@ -2,14 +2,18 @@ from __future__ import annotations
 
 import os
 import webbrowser
+from pathlib import Path
 from PySide6.QtCore import Qt
 DEV_MODE = os.getenv("LAPTOP_HEALTH_DEV", "").strip().lower() in ("1","true","yes","on")
 SIMULATE_UPDATE_AVAILABLE = os.getenv("LAPTOP_HEALTH_DEV_UPDATE_AVAILABLE", "").strip().lower() in ("1","true","yes","on")
 
-from PySide6.QtWidgets import QFrame, QVBoxLayout, QPushButton, QLabel, QStyle
+from PySide6.QtGui import QIcon
+from PySide6.QtWidgets import QFrame, QVBoxLayout, QPushButton, QLabel, QStyle, QHBoxLayout, QWidget
 from ui_v2.services.devtools_state import get_sidebar_update_mode
 from ui_v2.version import APP_VERSION, APP_RELEASE_DATE
 from ui_v2.services.update_checker import check_for_updates
+
+PROBE_ICON_PATH = str(Path(__file__).resolve().parents[2] / "assets" / "probe-sidebar.svg")
 
 
 class Sidebar(QFrame):
@@ -22,29 +26,61 @@ class Sidebar(QFrame):
         super().__init__()
         self.setObjectName("Sidebar")
         self.buttons: dict[str, QPushButton] = {}
+        self.popout_buttons: dict[str, QPushButton] = {}
+        self.rows: dict[str, QFrame] = {}
         self._release_url: str | None = None
 
         v = QVBoxLayout(self)
         v.setContentsMargins(16, 16, 16, 16)
         v.setSpacing(12)
 
-        title = QLabel("Laptop Health")
-        title.setObjectName("AppTitle")
-        v.addWidget(title)
+        def themed_icon(*names: str, fallback) -> QIcon:
+            for name in names:
+                icon = QIcon.fromTheme(name)
+                if not icon.isNull():
+                    return icon
+            return self.style().standardIcon(fallback)
 
-        def mk(key: str, text: str, icon_enum) -> QPushButton:
+        def local_icon(path: str, fallback) -> QIcon:
+            icon = QIcon(path)
+            if not icon.isNull():
+                return icon
+            return self.style().standardIcon(fallback)
+
+        def mk(key: str, text: str, icon_enum, icon: QIcon | None = None) -> QPushButton:
+            row = QFrame()
+            row.setObjectName("NavRow")
+            row.setProperty("active", "0")
+            self.rows[key] = row
+            row_l = QHBoxLayout(row)
+            row_l.setContentsMargins(0, 0, 0, 0)
+            row_l.setSpacing(0)
+
             btn = QPushButton(text)
             btn.setObjectName("NavBtn")
-            btn.setIcon(self.style().standardIcon(icon_enum))
+            btn.setIcon(icon or self.style().standardIcon(icon_enum))
             self.buttons[key] = btn
-            v.addWidget(btn)
+            row_l.addWidget(btn, 1)
+
+            pop_btn = QPushButton("↗")
+            pop_btn.setObjectName("PopOutBtn")
+            pop_btn.setToolTip(f"Open {text} in a separate window")
+            self.popout_buttons[key] = pop_btn
+            row_l.addWidget(pop_btn, 0)
+
+            v.addWidget(row)
             return btn
 
         mk("dashboard", "Overview", QStyle.SP_DesktopIcon)
         mk("power", "Power && Thermal", QStyle.SP_ComputerIcon)
         mk("network", "Network", QStyle.SP_DriveNetIcon)
         mk("storage", "Storage", QStyle.SP_DriveHDIcon)
-        mk("remote", "Probe/s", QStyle.SP_DirLinkIcon)
+        mk(
+            "remote",
+            "Probes",
+            QStyle.SP_ComputerIcon,
+            local_icon(PROBE_ICON_PATH, QStyle.SP_ComputerIcon),
+        )
         mk("updates", "Updates", QStyle.SP_BrowserReload)
 
         if DEV_MODE:
@@ -58,23 +94,15 @@ class Sidebar(QFrame):
         v.addStretch(1)
 
         self.footer = QFrame()
-        self.footer.setStyleSheet(
-            "background: rgba(7,12,20,0.92);"
-            "border: 1px solid rgba(96,165,250,0.18);"
-            "border-radius: 12px;"
-        )
+        self.footer.setObjectName("SidebarFooter")
         footer_l = QVBoxLayout(self.footer)
         footer_l.setContentsMargins(10, 8, 10, 8)
         footer_l.setSpacing(4)
 
         self.version_label = QLabel(self._version_text())
+        self.version_label.setObjectName("SidebarVersion")
         self.version_label.setAlignment(Qt.AlignLeft | Qt.AlignBottom)
         self.version_label.setWordWrap(True)
-        self.version_label.setStyleSheet(
-            "color: rgba(191,219,254,0.72);"
-            "font-size: 11px;"
-            "padding: 0;"
-        )
         footer_l.addWidget(self.version_label)
 
         self.update_status_label = QLabel("")

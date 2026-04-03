@@ -5,9 +5,16 @@ from PySide6.QtCore import Qt, Signal
 from PySide6.QtGui import QIcon, QFont, QFontMetrics
 from PySide6.QtWidgets import QPushButton, QFrame, QHBoxLayout, QLabel, QStyle, QVBoxLayout, QWidget, QSizePolicy, QBoxLayout
 
+from ui_v2.theme import current_theme_mode
 from ui_v2.widgets.sparkline import Sparkline
 from ui_v2.widgets.ring import Ring
 from ui_v2.services.updates import UPDATE_ACCENT_RGBA, classify_update_status
+
+try:
+    from shiboken6 import isValid as _is_valid  # type: ignore
+except Exception:
+    def _is_valid(obj: object) -> bool:
+        return obj is not None
 
 ICON_MAP = {
     "CPU": QStyle.SP_ComputerIcon,
@@ -181,7 +188,7 @@ class MetricCard(QFrame):
     def set_spark(self, points: list[float]) -> None:
         """Update sparkline points (expects 0..1 floats)."""
         spark = getattr(self, 'spark', None)
-        if spark is None:
+        if spark is None or not _is_valid(spark):
             return
         # Preferred API
         if hasattr(spark, 'set_points') and callable(getattr(spark, 'set_points')):
@@ -195,6 +202,10 @@ class MetricCard(QFrame):
         spark.update()
 
     def set_values(self, big: str, sub: str, accent: str | None = None):
+        if not _is_valid(self):
+            return
+        if not _is_valid(getattr(self, "big_lbl", None)) or not _is_valid(getattr(self, "sub_lbl", None)):
+            return
         self.big_lbl.setText(big)
         self.sub_lbl.setText(sub)
         if accent:
@@ -206,6 +217,8 @@ class MetricCard(QFrame):
         self.update()
 
     def set_title(self, title: str) -> None:
+        if not _is_valid(self) or not _is_valid(getattr(self, "title_lbl", None)):
+            return
         self.title_lbl.setText(title)
 
 
@@ -346,7 +359,6 @@ class UpdatesCard(QFrame):
         f.setBold(True)
         f.setPointSize(34)
         self.big.setFont(f)
-        self.big.setStyleSheet("color: rgba(255,255,255,0.96);")
         self.body.addWidget(self.big, 0)
 
         self.right = QVBoxLayout()
@@ -387,24 +399,9 @@ class UpdatesCard(QFrame):
         self.btn_details = QPushButton("View details")
         self.btn_details.setCursor(Qt.PointingHandCursor)
         self.btn_details.setSizePolicy(QSizePolicy.Maximum, QSizePolicy.Fixed)
-
+        self.btn_details.setObjectName("ActionButton")
         self.btn_details.setIcon(self.style().standardIcon(QStyle.SP_BrowserReload))
-        self.btn_details.setStyleSheet("""
-            QPushButton {
-                color: rgba(255,255,255,0.92);
-                background: rgba(255,255,255,0.08);
-                border: 1px solid rgba(255,255,255,0.14);
-                padding: 6px 12px;
-                border-radius: 10px;
-            }
-            QPushButton:hover {
-                background: rgba(255,255,255,0.12);
-                border: 1px solid rgba(255,255,255,0.18);
-            }
-            QPushButton:pressed {
-                background: rgba(255,255,255,0.06);
-            }
-        """)
+        self.btn_details.setStyleSheet("")
 
         self.btn_details.clicked.connect(self.details_requested.emit)
         self.foot.addWidget(self.btn_details)
@@ -487,7 +484,8 @@ class UpdatesCard(QFrame):
         status_badge = badge or status_badge
         status_accent = accent or status_accent
         self.badge.setText(status_badge)
-        self.badge.setStyleSheet(f"color: {UPDATE_ACCENT_RGBA.get(status_accent, 'rgba(255,255,255,0.85)')};")
+        fallback = "rgba(27,36,48,0.85)" if current_theme_mode() == "light" else "rgba(255,255,255,0.85)"
+        self.badge.setStyleSheet(f"color: {UPDATE_ACCENT_RGBA.get(status_accent, fallback)};")
         self.badge.setVisible(status_badge != "OK")
 
         self.setProperty("accent", status_accent)

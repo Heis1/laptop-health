@@ -92,6 +92,25 @@ def _route_ifaces() -> list[str]:
     return candidates
 
 def _default_iface() -> str | None:
+    ranked = active_ifaces()
+    if ranked:
+        return ranked[0]
+
+    # fallback
+    try:
+        with open("/proc/net/dev", "r", encoding="utf-8", errors="ignore") as f:
+            for line in f:
+                if ":" not in line:
+                    continue
+                iface = line.split(":", 1)[0].strip()
+                if iface and iface != "lo":
+                    return iface
+    except Exception:
+        pass
+    return None
+
+
+def active_ifaces() -> list[str]:
     route_ifaces = _route_ifaces()
 
     if psutil is not None:
@@ -119,25 +138,11 @@ def _default_iface() -> str | None:
                 ranked.append((score, iface))
             if ranked:
                 ranked.sort(key=lambda item: (-item[0], item[1]))
-                return ranked[0][1]
+                return [iface for _score, iface in ranked]
         except Exception:
             pass
 
-    if route_ifaces:
-        return route_ifaces[0]
-
-    # fallback
-    try:
-        with open("/proc/net/dev", "r", encoding="utf-8", errors="ignore") as f:
-            for line in f:
-                if ":" not in line:
-                    continue
-                iface = line.split(":", 1)[0].strip()
-                if iface and iface != "lo":
-                    return iface
-    except Exception:
-        pass
-    return None
+    return route_ifaces
 
 def _iface_ip(iface: str) -> str | None:
     try:
@@ -222,9 +227,9 @@ def _throughput_mbps(iface: str) -> tuple[float | None, float | None]:
     tx_mbps = (max(0, tx - tx0) * 8.0) / (dt * 1_000_000.0)
     return (rx_mbps, tx_mbps)
 
-def sample_network(interval_s: float = 0.5) -> NetworkSnapshot:
+def sample_network(interval_s: float = 0.5, iface_override: str | None = None) -> NetworkSnapshot:
     try:
-        iface = _default_iface()
+        iface = iface_override or _default_iface()
         if not iface:
             return NetworkSnapshot(None, None, None, None, None, None, None, None, error="No active interface")
 

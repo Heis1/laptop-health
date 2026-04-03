@@ -11,6 +11,7 @@ EXPECTED_RELEASE_HOST = "github.com"
 EXPECTED_RELEASE_PATH_PREFIX = f"/{GITHUB_REPO}/releases/"
 EXPECTED_DOWNLOAD_PATH_PREFIX = f"/{GITHUB_REPO}/releases/download/"
 ALLOWED_DOWNLOAD_HOSTS = ("github.com", "objects.githubusercontent.com")
+MAX_UPDATE_RESPONSE_BYTES = 256 * 1024
 
 @dataclass
 class UpdateCheckResult:
@@ -87,7 +88,10 @@ def check_for_updates(current_version: str) -> UpdateCheckResult:
             },
         )
         with urllib.request.urlopen(req, timeout=5) as r:
-            data = json.loads(r.read().decode())
+            raw = r.read(MAX_UPDATE_RESPONSE_BYTES + 1)
+        if len(raw) > MAX_UPDATE_RESPONSE_BYTES:
+            raise RuntimeError(f"Release response exceeded {MAX_UPDATE_RESPONSE_BYTES} bytes")
+        data = json.loads(raw.decode())
 
         latest = data.get("tag_name")
         url = _validated_release_url(data.get("html_url")) or RELEASES_PAGE_URL

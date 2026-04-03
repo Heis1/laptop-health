@@ -146,14 +146,32 @@ class _DeployThread(QThread):
             self.output.emit("Starting probe service\n")
             self._run_remote(client, f"systemctl daemon-reload && systemctl enable --now {service_name} && systemctl restart {service_name}", sudo=True)
 
+            verify_header_file = "/tmp/pi-probe-verify.headers"
+            verify_prefix = (
+                f"umask 077 && printf 'Authorization: Bearer %s\\n' \"$(cat {shlex.quote(token_file_path)})\" "
+                f"> {shlex.quote(verify_header_file)} && "
+            )
+            verify_cleanup = f"; rm -f {shlex.quote(verify_header_file)}"
             if self.tls_mode == "off":
-                verify = f"curl -fsS -H {shlex.quote('Authorization: Bearer ' + self.token)} http://localhost:{self.port}/metrics >/dev/null 2>/dev/null"
+                verify = (
+                    verify_prefix
+                    + f"curl -fsS -H @{shlex.quote(verify_header_file)} http://localhost:{self.port}/metrics >/dev/null 2>/dev/null"
+                    + verify_cleanup
+                )
                 dashboard_url = f"http://{self.host}:{self.port}/metrics"
             else:
                 if re.match(r'^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$', self.tls_cn):
-                    verify = f"curl -fsS --cacert {shlex.quote(remote_cert_path)} -H {shlex.quote('Authorization: Bearer ' + self.token)} https://{self.tls_cn}:{self.port}/metrics >/dev/null 2>/dev/null"
+                    verify = (
+                        verify_prefix
+                        + f"curl -fsS --cacert {shlex.quote(remote_cert_path)} -H @{shlex.quote(verify_header_file)} https://{self.tls_cn}:{self.port}/metrics >/dev/null 2>/dev/null"
+                        + verify_cleanup
+                    )
                 else:
-                    verify = f"curl -fsS --cacert {shlex.quote(remote_cert_path)} --resolve {shlex.quote(f'{self.tls_cn}:{self.port}:127.0.0.1')} -H {shlex.quote('Authorization: Bearer ' + self.token)} https://{self.tls_cn}:{self.port}/metrics >/dev/null 2>/dev/null"
+                    verify = (
+                        verify_prefix
+                        + f"curl -fsS --cacert {shlex.quote(remote_cert_path)} --resolve {shlex.quote(f'{self.tls_cn}:{self.port}:127.0.0.1')} -H @{shlex.quote(verify_header_file)} https://{self.tls_cn}:{self.port}/metrics >/dev/null 2>/dev/null"
+                        + verify_cleanup
+                    )
                 dashboard_url = f"https://{self.tls_cn}:{self.port}/metrics"
 
             self.output.emit("Verifying probe\n")

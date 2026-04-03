@@ -1,11 +1,11 @@
 from __future__ import annotations
 from PySide6.QtGui import QFont
 
-from PySide6.QtCore import QThreadPool, QTimer
-from PySide6.QtWidgets import QFrame, QHBoxLayout, QLabel, QStyle, QVBoxLayout
+from PySide6.QtCore import QThreadPool, QTimer, Qt, Signal
+from PySide6.QtWidgets import QFrame, QHBoxLayout, QLabel, QStyle, QVBoxLayout, QPushButton
 
 from ui_v2.qtworker import QtWorker
-from ui_v2.services.network_metrics import sample_network, NetworkSnapshot
+from ui_v2.services.network_metrics import sample_network, NetworkSnapshot, active_ifaces
 from ui_v2.widgets.cards import apply_responsive_card_fonts
 
 
@@ -22,6 +22,8 @@ def _fmt_mbps(v: float | None) -> str | None:
 
 
 class NetworkCard(QFrame):
+    iface_changed = Signal(str)
+
     def __init__(self):
         super().__init__()
         self.setObjectName("Card")
@@ -35,6 +37,9 @@ class NetworkCard(QFrame):
         self._last_up: str = "— Mbps ↑"
         self._last_ip: str = "—"
         self._last_ping: str = "—"
+        self._ifaces: list[str] = []
+        self._selected_iface: str | None = None
+        self._refresh_in_flight = False
 
         outer = QVBoxLayout(self)
         outer.setContentsMargins(16, 14, 16, 14)
@@ -48,6 +53,11 @@ class NetworkCard(QFrame):
         t = QLabel("Network")
         t.setObjectName("CardTitle")
         hdr.addWidget(t)
+        self.iface_badge = QPushButton("Auto")
+        self.iface_badge.setObjectName("Badge")
+        self.iface_badge.setCursor(Qt.PointingHandCursor)
+        self.iface_badge.clicked.connect(self._cycle_iface)
+        hdr.addWidget(self.iface_badge)
         hdr.addStretch(1)
         outer.addLayout(hdr)
 
@@ -126,10 +136,41 @@ class NetworkCard(QFrame):
         self.sub.setText(f"{self._last_ping} • IP {self._last_ip}")
 
     def _refresh(self):
-        w = QtWorker(lambda: sample_network(0.75))
+        if self._refresh_in_flight:
+            return
+        self._refresh_in_flight = True
+        self._ifaces = active_ifaces()
+        if self._selected_iface not in self._ifaces:
+            self._selected_iface = self._ifaces[0] if self._ifaces else None
+        self._sync_iface_badge()
+        w = QtWorker(lambda: sample_network(0.75, iface_override=self._selected_iface))
         w.signals.result.connect(self._apply)
         w.signals.error.connect(self._apply_error)
+        w.signals.finished.connect(lambda: setattr(self, "_refresh_in_flight", False))
         self.pool.start(w)
+
+    def _cycle_iface(self):
+        if len(self._ifaces) <= 1:
+            return
+        if self._selected_iface not in self._ifaces:
+            self._selected_iface = self._ifaces[0]
+        else:
+            idx = self._ifaces.index(self._selected_iface)
+            self._selected_iface = self._ifaces[(idx + 1) % len(self._ifaces)]
+        self.iface_changed.emit(self._selected_iface or "")
+        self._sync_iface_badge()
+        self._refresh()
+
+    def _sync_iface_badge(self):
+        if not self._ifaces:
+            self.iface_badge.setText("Auto")
+            self.iface_badge.setEnabled(False)
+            return
+        current = self._selected_iface or self._ifaces[0]
+        self.iface_badge.setText(current)
+        self.iface_badge.setEnabled(len(self._ifaces) > 1)
+        tip = "Click to switch active network interface" if len(self._ifaces) > 1 else "Only one active network interface"
+        self.iface_badge.setToolTip(tip)
 
     def _apply_error(self, msg: str):
         # IMPORTANT: do NOT blank/overwrite displayed values on transient errors

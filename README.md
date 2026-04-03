@@ -9,6 +9,8 @@ A modern Linux system health dashboard for laptops.
 
 Laptop Health provides a clean, modular interface for monitoring system performance, thermals, storage, network activity, and power state — built with PySide6 and designed for Linux Mint / Ubuntu environments.
 
+Current stable release: `v1.2.0`
+
 ## Project Status
 
 Stable release branch: main  
@@ -19,7 +21,7 @@ The current version includes:
 - live sparklines and enhanced system metrics
 - integrated update checking and download support
 - configurable network discovery and improved live network monitoring
-- Raspberry Pi probe support for remote monitoring inside the desktop app (currently beta)
+- Raspberry Pi probe support for remote monitoring inside the desktop app
 
 ---
 
@@ -38,17 +40,13 @@ The current version includes:
 - Sidebar version display
 - GitHub update checking
 - In-app update download support (.deb)
+- Multi-probe remote monitoring with optional Pi-hole integration
 
 ---
 
 ## Installation (Debian / Ubuntu / Mint)
 
 Download the latest stable `.deb` from the Releases page.
-
-If you want to test Raspberry Pi probe support, use the current beta pre-release instead:
-
-- `v1.2.0-beta.2`
-- https://github.com/Heis1/laptop-health/releases/tag/v1.2.0-beta.2
 
 Or download directly:
 
@@ -61,13 +59,13 @@ This will fetch the latest release asset (preferring `amd64`).
 Install using:
 
 ```bash
-pkexec apt install ./laptop-health_1.1.0-1_amd64.deb
+pkexec apt install ./laptop-health_1.2.0-1_amd64.deb
 ```
 
 Or manually:
 
 ```bash
-sudo dpkg -i laptop-health_1.1.0-1_amd64.deb
+sudo dpkg -i laptop-health_1.2.0-1_amd64.deb
 sudo apt -f install
 ```
 
@@ -155,15 +153,17 @@ For the new UI preview:
 ./run-v2.sh
 ```
 
+Or launch the preview entry point directly:
+
+```bash
+python ui_preview_v2.py
+```
+
 ## Raspberry Pi Probe
 
 The repository includes a headless probe at `probe/pi_probe.py`.
 
 Probe installs target Linux devices, especially Raspberry Pi OS and other Debian-family systems with `ssh`, `sudo`, and `systemd` available.
-
-Raspberry Pi probe support is currently available as the beta pre-release `v1.2.0-beta.2`:
-
-- https://github.com/Heis1/laptop-health/releases/tag/v1.2.0-beta.2
 
 Current in-progress scope:
 
@@ -203,12 +203,12 @@ From source:
 
 Then in the app:
 
-1. Open `Probe/s`
+1. Open `Probes`
 2. Click `Add Probe`
 3. Enter the Pi IP or hostname, a friendly probe name, the SSH user, and token choice
 4. Leave the probe port at `9821` unless you need a different port for that device
 5. Wait for the in-app installer to finish
-6. Confirm the new probe appears on `Probe/s`
+6. Confirm the new probe appears on `Probes`
 7. Confirm the overview dashboard shows the probe card when at least one probe is enabled
 8. Add a second probe entry or rename the current one to test multi-probe switching
 9. Use `Remove Current` to confirm the local entry disappears and the remote uninstall runs
@@ -219,7 +219,7 @@ Recommended verification:
 - confirm the app accepts the CA certificate at `probe/probe.crt` when using self-signed TLS
 - confirm the overview card hides completely when no probes are enabled
 - confirm manual prev/next switching and automatic rotation both work when multiple probes are enabled
-- if the probe host runs Pi-hole, enable Pi-hole stats in `Probe settings` and confirm `Probe/s` shows Pi-hole status, activity, top clients, and top blocked domains
+- if the probe host runs Pi-hole, enable Pi-hole stats in `Probe settings` and confirm `Probes` shows Pi-hole status, activity, top clients, and top blocked domains
 
 If you want the non-interactive version, use:
 
@@ -319,13 +319,13 @@ The in-app install/remove flow now uses explicit SSH host-key trust on first con
 Build a release `.deb` with:
 
 ```bash
-VERSION=1.1.0 ./release.sh
+VERSION=1.2.0 ./release.sh
 ```
 
 This produces:
 
 ```text
-pkg/laptop-health_1.1.0-1_amd64.deb
+pkg/laptop-health_1.2.0-1_amd64.deb
 ```
 
 The release script builds the PyInstaller bundle and then stages the Debian package with the required runtime dependencies.
@@ -334,7 +334,7 @@ The release script builds the PyInstaller bundle and then stages the Debian pack
 
 ## Versioning
 
-Releases follow semantic versioning, for example `v1.1.0`.
+Releases follow semantic versioning, for example `v1.2.0`.
 
 Binary installers are attached to GitHub Releases.
 

@@ -60,6 +60,7 @@ class RemotePage(QWidget):
         self._pihole_cache_by_probe: dict[str, dict] = {}
         self._pihole_error_by_probe: dict[str, str] = {}
         self._pihole_last_fetch_at: dict[str, float] = {}
+        self._refresh_in_flight = False
 
         outer = QVBoxLayout(self)
         outer.setContentsMargins(0, 0, 0, 0)
@@ -260,6 +261,8 @@ class RemotePage(QWidget):
     def refresh_now(self) -> None:
         if not self.isVisible():
             return
+        if self._refresh_in_flight:
+            return
         self._reload_configs()
         current = self.current_probe
         if current is None:
@@ -287,6 +290,7 @@ class RemotePage(QWidget):
                     result["pihole_error"] = self._pihole_error_by_probe[current.id]
             return result
 
+        self._refresh_in_flight = True
         w = Worker(_load_current)
         self._workers.append(w)
 
@@ -297,6 +301,7 @@ class RemotePage(QWidget):
                 else:
                     self._apply_payload(res if isinstance(res, dict) else {})
             finally:
+                self._refresh_in_flight = False
                 try:
                     self._workers.remove(w)
                 except ValueError:

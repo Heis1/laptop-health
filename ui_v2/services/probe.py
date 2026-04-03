@@ -19,6 +19,7 @@ LEGACY_PROBE_TOKEN_PATH = os.path.join(os.path.expanduser("~"), ".config", "lapt
 SECRET_TOOL_SERVICE = "laptop-health"
 PIHOLE_CACHE_TTL_S = 120.0
 PIHOLE_RATE_LIMIT_BACKOFF_S = 180.0
+MAX_REMOTE_JSON_BYTES = 512 * 1024
 _PIHOLE_CACHE: dict[str, tuple[float, dict[str, Any]]] = {}
 _PIHOLE_BACKOFF_UNTIL: dict[str, float] = {}
 
@@ -336,6 +337,16 @@ def clear_probe_config() -> None:
     clear_probe_configs()
 
 
+def _read_json_response_limited(response, *, limit: int = MAX_REMOTE_JSON_BYTES) -> dict[str, Any]:
+    raw = response.read(limit + 1)
+    if len(raw) > limit:
+        raise ValueError(f"Remote response exceeded {limit} bytes")
+    payload = json.loads(raw.decode("utf-8", errors="replace"))
+    if not isinstance(payload, dict):
+        raise ValueError("Remote response was not a JSON object")
+    return payload
+
+
 def fetch_probe_snapshot(config: ProbeConfig) -> dict[str, Any]:
     url = config.url.strip()
     if not url:
@@ -353,11 +364,7 @@ def fetch_probe_snapshot(config: ProbeConfig) -> dict[str, Any]:
             context = ssl.create_default_context()
 
     with urllib.request.urlopen(req, timeout=2.5, context=context) as response:
-        payload = json.loads(response.read().decode("utf-8", errors="replace"))
-
-    if not isinstance(payload, dict):
-        raise ValueError("Probe response was not a JSON object")
-    return payload
+        return _read_json_response_limited(response)
 
 
 def _ssl_context_for_url(config: ProbeConfig, url: str):
@@ -384,11 +391,7 @@ def _request_json(
         req_headers.setdefault("Content-Type", "application/json")
     req = urllib.request.Request(url, data=body, headers=req_headers, method=method)
     with urllib.request.urlopen(req, timeout=timeout, context=context) as response:
-        raw = response.read().decode("utf-8", errors="replace")
-    parsed = json.loads(raw)
-    if not isinstance(parsed, dict):
-        raise ValueError("Pi-hole response was not a JSON object")
-    return parsed
+        return _read_json_response_limited(response)
 
 
 def _normalize_pihole_url(url: str) -> str:
