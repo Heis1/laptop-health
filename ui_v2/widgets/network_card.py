@@ -39,6 +39,7 @@ class NetworkCard(QFrame):
         self._last_ping: str = "—"
         self._ifaces: list[str] = []
         self._selected_iface: str | None = None
+        self._refresh_in_flight = False
 
         outer = QVBoxLayout(self)
         outer.setContentsMargins(16, 14, 16, 14)
@@ -135,6 +136,9 @@ class NetworkCard(QFrame):
         self.sub.setText(f"{self._last_ping} • IP {self._last_ip}")
 
     def _refresh(self):
+        if self._refresh_in_flight:
+            return
+        self._refresh_in_flight = True
         self._ifaces = active_ifaces()
         if self._selected_iface not in self._ifaces:
             self._selected_iface = self._ifaces[0] if self._ifaces else None
@@ -142,6 +146,7 @@ class NetworkCard(QFrame):
         w = QtWorker(lambda: sample_network(0.75, iface_override=self._selected_iface))
         w.signals.result.connect(self._apply)
         w.signals.error.connect(self._apply_error)
+        w.signals.finished.connect(lambda: setattr(self, "_refresh_in_flight", False))
         self.pool.start(w)
 
     def _cycle_iface(self):

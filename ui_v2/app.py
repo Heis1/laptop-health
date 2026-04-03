@@ -8,11 +8,11 @@ if __package__ in (None, ""):
     sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from PySide6.QtCore import QPoint, Qt, QThreadPool, QTimer
-from PySide6.QtGui import QFont, QMouseEvent
+from PySide6.QtGui import QFont, QMouseEvent, QIcon, QPixmap
 from PySide6.QtWidgets import (
     QApplication,
     QFrame, QHBoxLayout, QLabel, QMainWindow, QStackedWidget,
-    QVBoxLayout, QWidget, QStyle, QToolButton, QMenu, QDialog
+    QVBoxLayout, QWidget, QStyle, QToolButton, QDialog
 )
 
 from ui_v2.theme import qss
@@ -26,12 +26,11 @@ from ui_v2.pages.storage import StoragePage
 from ui_v2.pages.updates import UpdatesPage
 from ui_v2.pages.devtools import DevToolsPage
 from ui_v2.services.probe import ProbeConfig, load_probe_configs, save_probe_config, save_probe_configs
-from ui_v2.widgets.export_report_dialog import ExportReportDialog
 from ui_v2.widgets.probe_settings_dialog import ProbeSettingsDialog
-from ui_v2.export.report_pdf import export_current_view_pdf, export_system_report_pdf, capture_widget_pixmap
 
 
 UI_PREFS_PATH = os.path.join(os.path.expanduser("~"), ".config", "laptop-health", "ui_prefs.json")
+APP_ICON_PATH = str(Path(__file__).resolve().parents[1] / "assets" / "laptop-health.png")
 
 
 def _load_theme_mode() -> str:
@@ -211,6 +210,8 @@ class MainWindow(QMainWindow):
         app_font.setPointSize(10)
         self.setFont(app_font)
         self.setWindowTitle("Laptop Health")
+        if os.path.exists(APP_ICON_PATH):
+            self.setWindowIcon(QIcon(APP_ICON_PATH))
         self.setWindowFlag(Qt.FramelessWindowHint, True)
         self.resize(1280, 820)
         self.setMinimumSize(980, 700)
@@ -227,9 +228,17 @@ class MainWindow(QMainWindow):
         t.setContentsMargins(14, 10, 14, 10)
         t.setSpacing(10)
 
-        self.title_mark = QLabel("LH")
+        self.title_mark = QLabel()
         self.title_mark.setObjectName("TitleBarMark")
         self.title_mark.setAlignment(Qt.AlignCenter)
+        if os.path.exists(APP_ICON_PATH):
+            title_pixmap = QPixmap(APP_ICON_PATH)
+            if not title_pixmap.isNull():
+                self.title_mark.setPixmap(
+                    title_pixmap.scaled(24, 24, Qt.KeepAspectRatio, Qt.SmoothTransformation)
+                )
+        if self.title_mark.pixmap() is None:
+            self.title_mark.setText("LH")
         t.addWidget(self.title_mark, 0, Qt.AlignVCenter)
 
         title_copy = QVBoxLayout()
@@ -247,26 +256,13 @@ class MainWindow(QMainWindow):
 
         t.addStretch(1)
 
-        self.btn_export = QToolButton()
-        self.btn_export.setObjectName("TopBtn")
-        self.btn_export.setIcon(self.style().standardIcon(QStyle.SP_DialogSaveButton))
-        self.btn_export.setText("Actions")
-        self.btn_export.setToolTip("View export actions")
-        self.btn_export.setToolButtonStyle(Qt.ToolButtonTextBesideIcon)
-        self.btn_export.setPopupMode(QToolButton.InstantPopup)
-
-        export_menu = QMenu(self)
-        act_current = export_menu.addAction("Export current view (PDF)...")
-        act_current.triggered.connect(self._export_current_pdf)
-        act_report = export_menu.addAction("Export system report (PDF)...")
-        act_report.triggered.connect(self._export_system_report)
-        export_menu.addSeparator()
-        self.act_theme = export_menu.addAction("")
-        self.act_theme.triggered.connect(self._toggle_theme_mode)
+        self.btn_theme = QToolButton()
+        self.btn_theme.setObjectName("TopBtn")
+        self.btn_theme.setIcon(self.style().standardIcon(QStyle.SP_BrowserReload))
+        self.btn_theme.setToolButtonStyle(Qt.ToolButtonTextBesideIcon)
+        self.btn_theme.clicked.connect(self._toggle_theme_mode)
         self._sync_theme_action()
-
-        self.btn_export.setMenu(export_menu)
-        t.addWidget(self.btn_export)
+        t.addWidget(self.btn_theme)
 
         self.btn_min = QToolButton()
         self.btn_min.setObjectName("TitleBtn")
@@ -403,7 +399,7 @@ class MainWindow(QMainWindow):
 
     def _is_title_drag_target(self, widget: QWidget | None) -> bool:
         while widget is not None:
-            if widget in {self.btn_export, self.btn_min, self.btn_max, self.btn_close}:
+            if widget in {self.btn_theme, self.btn_min, self.btn_max, self.btn_close}:
                 return False
             if widget is self.titlebar:
                 return True
@@ -493,95 +489,15 @@ class MainWindow(QMainWindow):
             except Exception:
                 pass
 
-    def _export_current_pdf(self) -> None:
-        from PySide6.QtWidgets import QFileDialog
-        from PySide6.QtCore import QDateTime
-
-        target = self.stack.currentWidget()
-        if target is None:
-            return
-        self.raise_()
-        self.activateWindow()
-        target.repaint()
-        QApplication.processEvents()
-
-        ts = QDateTime.currentDateTime().toString("yyyy-MM-dd_HHmmss")
-        default_name = f"laptop-health_{ts}.pdf"
-
-        path, _ = QFileDialog.getSaveFileName(
-            self,
-            "Export current view",
-            default_name,
-            "PDF Files (*.pdf)",
-        )
-
-        if not path:
-            return
-
-        export_current_view_pdf(target, path)
-
-    def _export_system_report(self) -> None:
-        from PySide6.QtWidgets import QFileDialog
-        from PySide6.QtCore import QDateTime
-
-        dialog = ExportReportDialog(self)
-        if dialog.exec() != QDialog.Accepted:
-            return
-
-        selections = dialog.selected_sections()
-        if not selections:
-            return
-
-        ts = QDateTime.currentDateTime().toString("yyyy-MM-dd_HHmmss")
-        default_name = f"laptop-health_report_{ts}.pdf"
-
-        path, _ = QFileDialog.getSaveFileName(
-            self,
-            "Export system report",
-            default_name,
-            "PDF Files (*.pdf)",
-        )
-
-        if not path:
-            return
-
-        screenshots: dict[str, object] = {}
-
-        # Only capture the dashboard screenshot for the report (sections are text)
-        if selections.get("dashboard", False):
-            current_index = self.stack.currentIndex()
-            dash_idx = self.page_order.index("dashboard")
-            if self.stack.currentIndex() != dash_idx:
-                self.stack.setCurrentIndex(dash_idx)
-
-            self.raise_()
-            self.activateWindow()
-            w = self.pages.get("dashboard")
-            if w is not None:
-                w.repaint()
-                QApplication.processEvents()
-                screenshots["dashboard"] = capture_widget_pixmap(w, scale=2.0)
-
-            # restore previous page
-            if self.stack.currentIndex() != current_index:
-                self.stack.setCurrentIndex(current_index)
-
-        export_system_report_pdf(
-            path=path,
-            screenshots=screenshots,
-            sections=selections,
-        )
-
-        if self.stack.currentIndex() != current_index:
-            self.stack.setCurrentIndex(current_index)
-
     def _go(self, key: str) -> None:
         self._set_active_nav(key)
         self.stack.setCurrentIndex(self.page_order.index(key))
         self._set_active_nav(key)
 
     def _sync_theme_action(self) -> None:
-        self.act_theme.setText("Switch to Light Mode" if self._theme_mode == "dark" else "Switch to Dark Mode")
+        label = "Light Mode" if self._theme_mode == "dark" else "Dark Mode"
+        self.btn_theme.setText(label)
+        self.btn_theme.setToolTip(f"Switch to {label}")
 
     def _apply_theme_mode(self) -> None:
         app = QApplication.instance()

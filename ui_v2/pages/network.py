@@ -548,6 +548,7 @@ class NetworkPage(QWidget):
         self._scan_profile = "Default noisy"
         self._last_discovery_result: DiscoveryResult | None = None
         self._discovery_windows: list[DiscoveryResultsDialog] = []
+        self._live_refresh_in_flight = False
 
         grid = QGridLayout(self)
         grid.setContentsMargins(0, 0, 0, 0)
@@ -826,9 +827,13 @@ class NetworkPage(QWidget):
 
     # -------- Live Network --------
     def _refresh_live(self):
+        if self._live_refresh_in_flight:
+            return
+        self._live_refresh_in_flight = True
         w = QtWorker(lambda: sample_network(0.75))
         w.signals.result.connect(self._apply_live)
         w.signals.error.connect(self._apply_live_error)
+        w.signals.finished.connect(lambda: setattr(self, "_live_refresh_in_flight", False))
         self.pool.start(w)
 
     def _apply_live_error(self, msg: str):

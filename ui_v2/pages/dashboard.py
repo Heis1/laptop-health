@@ -107,6 +107,11 @@ class DashboardPage(QWidget):
         self._pihole_results: dict[str, object] = {}
         self._probe_index = 0
         self._probe_histories: dict[str, deque[float]] = {}
+        self._fast_refresh_in_flight = False
+        self._slow_refresh_in_flight = False
+        self._probe_refresh_in_flight = False
+        self._overview_refresh_in_flight = False
+        self._gpu_refresh_in_flight = False
 
         # cache slow metrics so fast refresh can't wipe them
         self._disk_home_used = None
@@ -303,6 +308,9 @@ class DashboardPage(QWidget):
         self.disk.set_disk(used_pct, free_gb, target=self._disk_target, mount_label=mount_label)
 
     def _refresh_fast(self):
+        if self._fast_refresh_in_flight:
+            return
+        self._fast_refresh_in_flight = True
         # Fast metrics (non-blocking)
         w = Worker(lambda: gather_fast())
         self._workers.append(w)
@@ -311,6 +319,7 @@ class DashboardPage(QWidget):
             try:
                 self._apply(res)
             finally:
+                self._fast_refresh_in_flight = False
                 try:
                     self._workers.remove(w)
                 except ValueError:
@@ -323,8 +332,9 @@ class DashboardPage(QWidget):
         try:
             import time as _time
             now = _time.time()
-            if now - getattr(self, "_gpu_last_ts", 0.0) >= 5.0:
+            if (not self._gpu_refresh_in_flight) and now - getattr(self, "_gpu_last_ts", 0.0) >= 5.0:
                 self._gpu_last_ts = now
+                self._gpu_refresh_in_flight = True
                 wg = Worker(get_gpu)
                 self._workers.append(wg)
 
@@ -332,6 +342,7 @@ class DashboardPage(QWidget):
                     try:
                         self._apply_gpu(res)
                     finally:
+                        self._gpu_refresh_in_flight = False
                         try:
                             self._workers.remove(wg)
                         except ValueError:
@@ -340,9 +351,13 @@ class DashboardPage(QWidget):
                 wg.signals.finished.connect(_done_g)
                 self.pool.start(wg)
         except Exception:
+            self._fast_refresh_in_flight = False
             pass
 
     def _refresh_slow(self):
+        if self._slow_refresh_in_flight:
+            return
+        self._slow_refresh_in_flight = True
         # Slow metrics (disk + updates)
         w = Worker(lambda: gather_slow())
         self._workers.append(w)
@@ -351,6 +366,7 @@ class DashboardPage(QWidget):
             try:
                 self._apply(res)
             finally:
+                self._slow_refresh_in_flight = False
                 try:
                     self._workers.remove(w)
                 except ValueError:
@@ -372,9 +388,12 @@ class DashboardPage(QWidget):
         self._render_probe_card()
 
     def refresh_now(self) -> None:
+        if self._probe_refresh_in_flight:
+            return
         self.reload_probe_config()
         if not self._active_probes:
             return
+        self._probe_refresh_in_flight = True
         probes = list(self._active_probes)
         def _load_probes():
             results = {}
@@ -404,6 +423,7 @@ class DashboardPage(QWidget):
                             self._probe_results[probe_id] = item
                 self._render_probe_card()
             finally:
+                self._probe_refresh_in_flight = False
                 try:
                     self._workers.remove(w)
                 except ValueError:
@@ -519,6 +539,9 @@ class DashboardPage(QWidget):
 
     def _do_refresh_now(self) -> None:
         """Actual refresh pipeline (previously _refresh())."""
+        if self._overview_refresh_in_flight:
+            return
+        self._overview_refresh_in_flight = True
         # Overview (CPU/disk/network/updates)
         w = Worker(lambda: gather_overview(interval_s=1.0))
         self._workers.append(w)
@@ -526,6 +549,7 @@ class DashboardPage(QWidget):
             try:
                 self._apply(res)
             finally:
+                self._overview_refresh_in_flight = False
                 try:
                     self._workers.remove(w)
                 except ValueError:
@@ -534,18 +558,21 @@ class DashboardPage(QWidget):
         self.pool.start(w)
 
         # GPU (separate worker so Overview doesn’t block)
-        w_gpu = Worker(get_gpu)
-        self._workers.append(w_gpu)
-        def _done_gpu(res):
-            try:
-                self._apply_gpu(res)
-            finally:
+        if not self._gpu_refresh_in_flight:
+            self._gpu_refresh_in_flight = True
+            w_gpu = Worker(get_gpu)
+            self._workers.append(w_gpu)
+            def _done_gpu(res):
                 try:
-                    self._workers.remove(w_gpu)
-                except ValueError:
-                    pass
-        w_gpu.signals.finished.connect(_done_gpu)
-        self.pool.start(w_gpu)
+                    self._apply_gpu(res)
+                finally:
+                    self._gpu_refresh_in_flight = False
+                    try:
+                        self._workers.remove(w_gpu)
+                    except ValueError:
+                        pass
+            w_gpu.signals.finished.connect(_done_gpu)
+            self.pool.start(w_gpu)
     def _apply_gpu(self, r):
         if not _is_valid(self) or not _is_valid(getattr(self, "gpu", None)):
             return
