@@ -82,6 +82,7 @@ class Sidebar(QFrame):
             local_icon(PROBE_ICON_PATH, QStyle.SP_ComputerIcon),
         )
         mk("updates", "Updates", QStyle.SP_BrowserReload)
+        mk("security", "Security Centre", QStyle.SP_MessageBoxWarning)
 
         if DEV_MODE:
 

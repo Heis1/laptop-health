@@ -24,6 +24,7 @@ from ui_v2.pages.network import NetworkPage
 from ui_v2.pages.remote import RemotePage
 from ui_v2.pages.storage import StoragePage
 from ui_v2.pages.updates import UpdatesPage
+from ui_v2.pages.security import SecurityPage
 from ui_v2.pages.devtools import DevToolsPage
 from ui_v2.services.probe import ProbeConfig, load_probe_configs, save_probe_config, save_probe_configs
 from ui_v2.widgets.probe_settings_dialog import ProbeSettingsDialog
@@ -322,9 +323,10 @@ class MainWindow(QMainWindow):
             "network": NetworkPage(),
             "remote": RemotePage(self._open_probe_settings, self),
             "updates": UpdatesPage(),
+            "security": SecurityPage(),
             "dev": DevToolsPage(),
         }
-        self.page_order = ["dashboard", "power", "storage", "network", "remote", "updates", "dev"]
+        self.page_order = ["dashboard", "power", "storage", "network", "remote", "updates", "security", "dev"]
         for k in self.page_order:
             self.stack.addWidget(self.pages[k])
         c.addWidget(self.stack, 1)
@@ -336,6 +338,7 @@ class MainWindow(QMainWindow):
         self.sidebar.buttons["network"].clicked.connect(lambda: self._go("network"))
         self.sidebar.buttons["remote"].clicked.connect(lambda: self._go("remote"))
         self.sidebar.buttons["updates"].clicked.connect(lambda: self._go("updates"))
+        self.sidebar.buttons["security"].clicked.connect(lambda: self._go("security"))
         for key, btn in self.sidebar.popout_buttons.items():
             btn.clicked.connect(lambda checked=False, k=key: self._open_popout(k))
         # Dev Tools is only present in developer mode
@@ -356,6 +359,8 @@ class MainWindow(QMainWindow):
             return RemotePage(self._open_probe_settings, self)
         if key == "updates":
             return UpdatesPage()
+        if key == "security":
+            return SecurityPage()
         if key == "dev":
             return DevToolsPage()
         raise KeyError(key)
@@ -368,6 +373,7 @@ class MainWindow(QMainWindow):
             "network": ("Network", "Live network metrics and discovery"),
             "remote": ("Probe/s", "Probe management and remote monitoring"),
             "updates": ("Updates", "System package and release updates"),
+            "security": ("Security Centre", "Local and remote security posture"),
             "dev": ("Dev Tools", "Developer utilities and simulation"),
         }
         return mapping.get(key, ("Laptop Health", ""))

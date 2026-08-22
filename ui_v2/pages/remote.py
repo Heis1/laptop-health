@@ -5,7 +5,7 @@ import time
 import webbrowser
 
 from PySide6.QtCore import QThreadPool, QTimer
-from PySide6.QtWidgets import QDialog, QGridLayout, QHBoxLayout, QLabel, QPushButton, QTextEdit, QVBoxLayout, QWidget
+from PySide6.QtWidgets import QDialog, QGridLayout, QHBoxLayout, QLabel, QPushButton, QTextEdit, QToolButton, QVBoxLayout, QWidget
 
 from ui_v2.services.probe import (
     ProbeConfig,
@@ -141,9 +141,20 @@ class RemotePage(QWidget):
         grid.addWidget(self.pihole_activity, 2, 1)
         outer.addLayout(grid)
 
+        diagnostics_row = QHBoxLayout()
+        diagnostics_row.addStretch(1)
+        self.diagnostics_btn = QToolButton()
+        self.diagnostics_btn.setText("Show technical details")
+        self.diagnostics_btn.setCheckable(True)
+        self.diagnostics_btn.setObjectName("ActionButton")
+        self.diagnostics_btn.toggled.connect(self._toggle_diagnostics)
+        diagnostics_row.addWidget(self.diagnostics_btn)
+        outer.addLayout(diagnostics_row)
+
         self.raw = QTextEdit()
         self.raw.setReadOnly(True)
         self.raw.setObjectName("InspectorContainer")
+        self.raw.setVisible(False)
         outer.addWidget(self.raw, 1)
 
         self.timer = QTimer(self)
@@ -151,6 +162,10 @@ class RemotePage(QWidget):
         self.timer.timeout.connect(self.refresh_now)
         self.timer.start()
         self.refresh_now()
+
+    def _toggle_diagnostics(self, visible: bool) -> None:
+        self.raw.setVisible(visible)
+        self.diagnostics_btn.setText("Hide technical details" if visible else "Show technical details")
 
     def reload_probe_config(self) -> None:
         self._reload_configs()
