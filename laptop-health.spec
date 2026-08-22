@@ -6,6 +6,7 @@ a = Analysis(
     pathex=[],
     binaries=[],
     datas=[
+        ('assets', 'assets'),
         ('probe/pi_probe.py', 'probe'),
         ('probe/pi-probe.service', 'probe'),
     ],
