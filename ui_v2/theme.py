@@ -17,19 +17,19 @@ ACCENT = {
     "purple": "#a78bfa",
 }
 
-LIGHT_BG_MAIN = "#f3efe7"
-LIGHT_BG_SIDEBAR = "#e8dcc9"
-LIGHT_PANEL = "#fffaf2"
-LIGHT_PANEL_SOFT = "#f7f0e4"
-LIGHT_BORDER = "#d9cab3"
-LIGHT_TEXT = "#1b2430"
-LIGHT_TEXT_MID = "#344255"
-LIGHT_TEXT_MUTED = "#67778b"
-LIGHT_BLUE = "#2f6fed"
-LIGHT_BLUE_SOFT = "rgba(47,111,237,0.12)"
-LIGHT_GREEN_SOFT = "rgba(52,211,153,0.14)"
-LIGHT_ORANGE_SOFT = "rgba(251,146,60,0.16)"
-LIGHT_RED_SOFT = "rgba(248,113,113,0.14)"
+LIGHT_BG_MAIN = "#f2f6fb"
+LIGHT_BG_SIDEBAR = "#101c30"
+LIGHT_PANEL = "#ffffff"
+LIGHT_PANEL_SOFT = "#f7f9fc"
+LIGHT_BORDER = "#d9e2ee"
+LIGHT_TEXT = "#142033"
+LIGHT_TEXT_MID = "#30425c"
+LIGHT_TEXT_MUTED = "#64748b"
+LIGHT_BLUE = "#2563eb"
+LIGHT_BLUE_SOFT = "rgba(37,99,235,0.10)"
+LIGHT_GREEN_SOFT = "rgba(16,185,129,0.11)"
+LIGHT_ORANGE_SOFT = "rgba(245,158,11,0.13)"
+LIGHT_RED_SOFT = "rgba(239,68,68,0.11)"
 
 def _qss_base() -> str:
     return f"""
@@ -523,8 +523,8 @@ QHeaderView::section {{
 }}
 
 #TitleBar {{
-    background: rgba(255,250,242,0.84);
-    border: 1px solid rgba(27,36,48,0.08);
+    background: rgba(255,255,255,0.96);
+    border: 1px solid {LIGHT_BORDER};
     border-radius: 16px;
 }}
 
@@ -544,12 +544,12 @@ QHeaderView::section {{
 
 #Sidebar {{
     background: {LIGHT_BG_SIDEBAR};
-    border: 1px solid {LIGHT_BORDER};
+    border: 1px solid #1b2a43;
 }}
 
 #BrandBlock {{
-    background: rgba(255,250,242,0.72);
-    border: 1px solid rgba(27,36,48,0.08);
+    background: rgba(255,255,255,0.06);
+    border: 1px solid rgba(255,255,255,0.10);
     border-radius: 16px;
 }}
 
@@ -570,9 +570,11 @@ QHeaderView::section {{
     letter-spacing: 0.8px;
 }}
 
-#AppTitle, #PageTitle, #InspectorTitle {{
+#PageTitle, #InspectorTitle {{
     color: {LIGHT_TEXT};
 }}
+
+#AppTitle {{ color: #f8fbff; }}
 
 #TitleBarText {{
     color: {LIGHT_TEXT};
@@ -587,35 +589,35 @@ QHeaderView::section {{
 }}
 
 #BrandSub {{
-    color: {LIGHT_TEXT_MUTED};
+    color: rgba(219,234,254,0.68);
     font-size: 11px;
     font-weight: 600;
 }}
 
 #NavRow {{
-    background: rgba(255,250,242,0.55);
-    color: {LIGHT_TEXT};
-    border: 1px solid rgba(27,36,48,0.06);
+    background: rgba(255,255,255,0.045);
+    color: #dce8f8;
+    border: 1px solid rgba(255,255,255,0.04);
     border-radius: 12px;
 }}
 
 #NavRow[active="1"] {{
-    background: rgba(255,250,242,0.92);
-    border-left: 3px solid {LIGHT_BLUE};
+    background: rgba(96,165,250,0.17);
+    border-left: 3px solid #60a5fa;
 }}
 
 #NavRow:hover {{
-    background: rgba(255,250,242,0.82);
+    background: rgba(255,255,255,0.09);
 }}
 
 #NavBtn {{
     background: transparent;
-    color: {LIGHT_TEXT};
+    color: #dce8f8;
     border: none;
 }}
 
 #NavRow[active="1"] #NavBtn {{
-    color: {LIGHT_TEXT};
+    color: #ffffff;
 }}
 
 QPushButton#ActionButton,
@@ -626,8 +628,8 @@ QToolButton#Badge,
 QComboBox#ActionSelect,
 QLineEdit#ActionInput {{
     color: {LIGHT_TEXT};
-    background: rgba(255,250,242,0.88);
-    border: 1px solid rgba(27,36,48,0.10);
+    background: #ffffff;
+    border: 1px solid {LIGHT_BORDER};
 }}
 
 QPushButton#ActionButton:hover,
@@ -637,8 +639,8 @@ QPushButton#PopOutBtn:hover,
 QToolButton#Badge:hover,
 QComboBox#ActionSelect:hover,
 QLineEdit#ActionInput:hover {{
-    background: #ffffff;
-    border: 1px solid rgba(27,36,48,0.16);
+    background: #f8fbff;
+    border: 1px solid rgba(37,99,235,0.34);
 }}
 
 QToolButton#TitleBtn {{
@@ -684,31 +686,32 @@ QLineEdit#ActionInput:focus {{
 #Card, QFrame#Card {{
     background: {LIGHT_PANEL};
     border: 1px solid {LIGHT_BORDER};
+    border-radius: 16px;
 }}
 
 #Card[accent="green"], QFrame#Card[accent="green"] {{
     border-left: 4px solid #2ea97b;
-    background: linear-gradient(to right, {LIGHT_GREEN_SOFT}, {LIGHT_PANEL});
+    background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 {LIGHT_GREEN_SOFT}, stop:1 {LIGHT_PANEL});
 }}
 
 #Card[accent="blue"], QFrame#Card[accent="blue"] {{
     border-left: 4px solid {LIGHT_BLUE};
-    background: linear-gradient(to right, {LIGHT_BLUE_SOFT}, {LIGHT_PANEL});
+    background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 {LIGHT_BLUE_SOFT}, stop:1 {LIGHT_PANEL});
 }}
 
 #Card[accent="orange"], QFrame#Card[accent="orange"] {{
     border-left: 4px solid #d97706;
-    background: linear-gradient(to right, {LIGHT_ORANGE_SOFT}, {LIGHT_PANEL});
+    background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 {LIGHT_ORANGE_SOFT}, stop:1 {LIGHT_PANEL});
 }}
 
 #Card[accent="red"], QFrame#Card[accent="red"] {{
     border-left: 4px solid #dc2626;
-    background: linear-gradient(to right, {LIGHT_RED_SOFT}, {LIGHT_PANEL});
+    background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 {LIGHT_RED_SOFT}, stop:1 {LIGHT_PANEL});
 }}
 
 #Card[accent="purple"], QFrame#Card[accent="purple"] {{
     border-left: 4px solid #7c3aed;
-    background: linear-gradient(to right, rgba(124,58,237,0.12), {LIGHT_PANEL});
+    background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 rgba(124,58,237,0.11), stop:1 {LIGHT_PANEL});
 }}
 
 #CardTitle, QLabel#CardTitle {{
@@ -766,13 +769,13 @@ QLabel {{
 }}
 
 #SidebarFooter {{
-    background: rgba(255,250,242,0.88);
-    border: 1px solid rgba(47,111,237,0.16);
+    background: rgba(255,255,255,0.06);
+    border: 1px solid rgba(255,255,255,0.10);
     border-radius: 12px;
 }}
 
 #SidebarVersion {{
-    color: {LIGHT_TEXT_MUTED};
+    color: rgba(219,234,254,0.70);
     font-size: 11px;
     padding: 0;
 }}

@@ -35,10 +35,11 @@ def _pihole_url_from_host(host: str) -> str:
     value = (host or "").strip().rstrip("/")
     if not value:
         return ""
-    if value.startswith(("http://", "https://")):
-        base = value.rstrip("/")
-    else:
-        base = f"http://{value}"
+    for prefix in ("http://", "https://"):
+        if value.startswith(prefix):
+            value = value[len(prefix):]
+            break
+    base = f"https://{value}"
     if base.endswith("/admin"):
         return f"{base}/api.php"
     if "/admin/api.php" in base:
@@ -156,7 +157,7 @@ class ProbeSettingsDialog(QDialog):
         self.pihole_host.setPlaceholderText("192.0.2.51")
         form.addRow("Pi-hole host or IP", self.pihole_host)
 
-        self.pihole_example = QLabel("Example: 192.0.2.51 → http://192.0.2.51/admin/api.php")
+        self.pihole_example = QLabel("HTTPS is required. Example: 192.0.2.51 → https://192.0.2.51/admin/api.php")
         self.pihole_example.setObjectName("ProbeSubtitle")
         self.pihole_example.setWordWrap(True)
         form.addRow("", self.pihole_example)

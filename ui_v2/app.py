@@ -25,6 +25,7 @@ from ui_v2.pages.remote import RemotePage
 from ui_v2.pages.storage import StoragePage
 from ui_v2.pages.updates import UpdatesPage
 from ui_v2.pages.security import SecurityPage
+from ui_v2.pages.battery import BatteryPage
 from ui_v2.pages.devtools import DevToolsPage
 from ui_v2.services.probe import ProbeConfig, load_probe_configs, save_probe_config, save_probe_configs
 from ui_v2.widgets.probe_settings_dialog import ProbeSettingsDialog
@@ -319,6 +320,7 @@ class MainWindow(QMainWindow):
         self.pages = {
             "dashboard": DashboardPage(lambda: self._go("remote")),
             "power": PowerPage(),
+            "battery": BatteryPage(),
             "storage": StoragePage(),
             "network": NetworkPage(),
             "remote": RemotePage(self._open_probe_settings, self),
@@ -326,7 +328,7 @@ class MainWindow(QMainWindow):
             "security": SecurityPage(),
             "dev": DevToolsPage(),
         }
-        self.page_order = ["dashboard", "power", "storage", "network", "remote", "updates", "security", "dev"]
+        self.page_order = ["dashboard", "power", "battery", "storage", "network", "remote", "updates", "security", "dev"]
         for k in self.page_order:
             self.stack.addWidget(self.pages[k])
         c.addWidget(self.stack, 1)
@@ -334,6 +336,7 @@ class MainWindow(QMainWindow):
 
         self.sidebar.buttons["dashboard"].clicked.connect(lambda: self._go("dashboard"))
         self.sidebar.buttons["power"].clicked.connect(lambda: self._go("power"))
+        self.sidebar.buttons["battery"].clicked.connect(lambda: self._go("battery"))
         self.sidebar.buttons["storage"].clicked.connect(lambda: self._go("storage"))
         self.sidebar.buttons["network"].clicked.connect(lambda: self._go("network"))
         self.sidebar.buttons["remote"].clicked.connect(lambda: self._go("remote"))
@@ -351,6 +354,8 @@ class MainWindow(QMainWindow):
             return DashboardPage(lambda: self._go("remote"))
         if key == "power":
             return PowerPage()
+        if key == "battery":
+            return BatteryPage()
         if key == "storage":
             return StoragePage()
         if key == "network":
@@ -369,6 +374,7 @@ class MainWindow(QMainWindow):
         mapping = {
             "dashboard": ("Overview", "Live system summary"),
             "power": ("Power & Thermal", "Wake activity and thermal analysis"),
+            "battery": ("Battery Health", "Capacity, cycles, and charge state"),
             "storage": ("Storage", "Mounted drives and storage analysis"),
             "network": ("Network", "Live network metrics and discovery"),
             "remote": ("Probe/s", "Probe management and remote monitoring"),

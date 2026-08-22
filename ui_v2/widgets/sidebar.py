@@ -14,6 +14,7 @@ from ui_v2.version import APP_VERSION, APP_RELEASE_DATE
 from ui_v2.services.update_checker import check_for_updates
 
 PROBE_ICON_PATH = str(Path(__file__).resolve().parents[2] / "assets" / "probe-sidebar.svg")
+BATTERY_ICON_PATH = str(Path(__file__).resolve().parents[2] / "assets" / "battery-sidebar.svg")
 
 
 class Sidebar(QFrame):
@@ -73,6 +74,12 @@ class Sidebar(QFrame):
 
         mk("dashboard", "Overview", QStyle.SP_DesktopIcon)
         mk("power", "Power && Thermal", QStyle.SP_ComputerIcon)
+        mk(
+            "battery",
+            "Battery Health",
+            QStyle.SP_DriveFDIcon,
+            local_icon(BATTERY_ICON_PATH, QStyle.SP_DriveFDIcon),
+        )
         mk("network", "Network", QStyle.SP_DriveNetIcon)
         mk("storage", "Storage", QStyle.SP_DriveHDIcon)
         mk(

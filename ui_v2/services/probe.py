@@ -24,6 +24,11 @@ _PIHOLE_CACHE: dict[str, tuple[float, dict[str, Any]]] = {}
 _PIHOLE_BACKOFF_UNTIL: dict[str, float] = {}
 
 
+def _require_https(url: str, label: str) -> None:
+    if not url.lower().startswith("https://"):
+        raise ValueError(f"{label} must use HTTPS. Update it in Probe settings and add the required CA certificate.")
+
+
 @dataclass
 class ProbeConfig:
     id: str
@@ -351,6 +356,7 @@ def fetch_probe_snapshot(config: ProbeConfig) -> dict[str, Any]:
     url = config.url.strip()
     if not url:
         raise ValueError("Probe URL is empty")
+    _require_https(url, "Probe URL")
 
     req = urllib.request.Request(url)
     if config.token:
@@ -444,6 +450,7 @@ def fetch_pihole_stats(config: ProbeConfig) -> dict[str, Any]:
     base_url = _normalize_pihole_url(config.pihole_url)
     if not base_url:
         raise ValueError("Pi-hole URL is empty")
+    _require_https(base_url, "Pi-hole URL")
 
     context = _ssl_context_for_url(config, config.pihole_url)
     api_root = _pihole_api_root(config.pihole_url)
