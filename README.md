@@ -9,7 +9,7 @@ A Linux health dashboard for laptops with first-class Raspberry Pi probe support
 
 Laptop Health is a PySide6 desktop app for monitoring thermals, power, storage, wakeups, network activity, package updates, and remote probe endpoints from one interface. It is built for Linux Mint, Ubuntu, and similar Debian-based systems.
 
-Current stable release: `v1.2.4`
+Current stable release: `v1.2.5`
 
 ## What It Does
 
@@ -308,13 +308,13 @@ The in-app install/remove flow now uses explicit SSH host-key trust on first con
 Build a release `.deb` with:
 
 ```bash
-VERSION=1.2.4 ./release.sh
+VERSION=1.2.5 ./release.sh
 ```
 
 This produces:
 
 ```text
-pkg/laptop-health_1.2.4-1_amd64.deb
+pkg/laptop-health_1.2.5-1_amd64.deb
 ```
 
 The release script builds the PyInstaller bundle and then stages the Debian package with the required runtime dependencies.
@@ -323,7 +323,7 @@ The release script builds the PyInstaller bundle and then stages the Debian pack
 
 ## Versioning
 
-Releases follow semantic versioning, for example `v1.2.4`.
+Releases follow semantic versioning, for example `v1.2.5`.
 
 Binary installers are attached to GitHub Releases.
 

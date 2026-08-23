@@ -530,7 +530,7 @@ class SecurityPage(QWidget):
         else:
             self.network.set_values("Review", "Confirm safe and authorised scan use", "orange")
             self.network_review_btn.setText("Review details")
-        self._update_score(insecure, requirement.exists())
+        self._update_score(insecure)
         bullets = [
             "1. Replace HTTP Probe and Pi-hole URLs with HTTPS, then add your local CA certificate in Probe settings.",
             "2. Apply system security updates regularly, particularly the Linux kernel and OpenSSL.",
@@ -539,15 +539,13 @@ class SecurityPage(QWidget):
         self.guidance.setText("\n".join(bullets))
         self.assessed_at.setText(f"Last assessed {time.strftime('%H:%M:%S')} • {len(configs)} active probe(s)")
 
-    def _update_score(self, insecure, requirements_present: bool) -> None:
+    def _update_score(self, insecure) -> None:
         score = 100
         if insecure:
             score -= min(45, len(insecure) * 30)
         if not secret_store_required():
             score -= 20
-        if not requirements_present:
-            score -= 15
-        elif self._dependency_audit_status == "vulnerable":
+        if self._dependency_audit_status == "vulnerable":
             score -= 30
         elif self._dependency_audit_status in {"review", "unavailable"}:
             score -= 15
@@ -566,9 +564,6 @@ class SecurityPage(QWidget):
 
     def _refresh_dependency_audit(self, requirements_path: Path) -> None:
         if self._dependency_worker and self._dependency_worker.isRunning():
-            return
-        if not requirements_path.exists():
-            self.dependencies.set_values("Review", "Build requirements file is missing", "orange")
             return
         self.dependencies.set_values("Checking", "Inventorying APT, Flatpak, Snap, Python, and user launchers", "blue")
         self.dependency_details_btn.setEnabled(True)
@@ -635,7 +630,7 @@ class SecurityPage(QWidget):
         else:
             self.dependencies.set_values("Unavailable", audit.get("detail", "OSV audit could not be reached"), "orange")
         configs = enabled_probe_configs()
-        self._update_score([cfg for cfg in configs if not cfg.url.lower().startswith("https://")], True)
+        self._update_score([cfg for cfg in configs if not cfg.url.lower().startswith("https://")])
 
     def _show_dependency_advisories(self) -> None:
         vulnerabilities = self._dependency_audit.get("vulnerabilities", [])
