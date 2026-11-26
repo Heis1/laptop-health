@@ -128,6 +128,15 @@ class ProbeSettingsDialog(QDialog):
         self.url.setPlaceholderText("https://192.0.2.51:9821/metrics")
         form.addRow("Probe URL", self.url)
 
+        self.fallback_url = QLineEdit(config.fallback_url)
+        self.fallback_url.setPlaceholderText("100.64.0.10 or https://100.64.0.10:9821/metrics")
+        form.addRow("Fallback address (Tailscale)", self.fallback_url)
+
+        fallback_help = QLabel("Optional. Enter a Tailscale IP or a full HTTPS URL. It is used automatically when the primary address is unreachable, and its certificate must verify.")
+        fallback_help.setObjectName("ProbeSubtitle")
+        fallback_help.setWordWrap(True)
+        form.addRow("", fallback_help)
+
         self.token = QLineEdit("")
         self.token.setEchoMode(QLineEdit.Password)
         self.token.setPlaceholderText("Stored in the desktop secret store. Enable replacement to enter a new token.")
@@ -360,6 +369,7 @@ class ProbeSettingsDialog(QDialog):
             enabled=self.enabled.isChecked(),
             name=(self.name.text().strip() or "Raspberry Pi"),
             url=self.url.text().strip(),
+            fallback_url=self.fallback_url.text().strip(),
             token=self.token.text().strip() if self.replace_token.isChecked() else self._existing_token,
             ca_cert_path=self.ca_cert_path.text().strip(),
             pihole_enabled=self.pihole_enabled.isChecked(),

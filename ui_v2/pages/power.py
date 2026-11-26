@@ -25,6 +25,10 @@ class PowerPage(QWidget):
     def __init__(self):
         super().__init__()
         self.pool = QThreadPool()
+        # Keep Python references to QRunnables until their result is delivered.
+        # Without this, a background action can be collected before it updates
+        # the page, which looks exactly like an unresponsive button.
+        self._workers: list[Worker] = []
 
         v = QVBoxLayout(self)
         v.setContentsMargins(0, 0, 0, 0)
@@ -155,6 +159,8 @@ class PowerPage(QWidget):
             self.deep_hint.setText("Install `powertop`, then return here and click Refresh.")
 
     def refresh(self):
+        if not self.isVisible():
+            return
         self.btn_refresh.setEnabled(False)
         self._sync_deep_status()
         self._load_fast_proxy()
@@ -162,9 +168,7 @@ class PowerPage(QWidget):
 
     # ---- Fast proxy ----
     def _load_fast_proxy(self):
-        w = Worker(lambda: sample_wake_activity_fast(1.0))
-        w.signals.finished.connect(self._fast_done)
-        self.pool.start(w)
+        self._start_worker(lambda: sample_wake_activity_fast(1.0), self._fast_done)
 
     def _fast_done(self, result):
         self.btn_refresh.setEnabled(True)
@@ -187,9 +191,7 @@ class PowerPage(QWidget):
             return
         self.btn_deep.setEnabled(False)
         self._set_wakeup_text("Sampling…", wakeups_hint_deep(), "orange")
-        w = Worker(lambda: sample_wakeups_powertop_slow(timeout_s=25))
-        w.signals.finished.connect(self._deep_done)
-        self.pool.start(w)
+        self._start_worker(lambda: sample_wakeups_powertop_slow(timeout_s=25), self._deep_done)
 
     def _deep_done(self, result):
         self._sync_deep_status()
@@ -203,9 +205,21 @@ class PowerPage(QWidget):
 
     # ---- Offenders ----
     def _load_offenders(self):
-        w = Worker(lambda: top_ctxt_switchers(1.0, limit=5))
-        w.signals.finished.connect(self._offenders_done)
-        self.pool.start(w)
+        self._start_worker(lambda: top_ctxt_switchers(1.0, limit=5), self._offenders_done)
+
+    def _start_worker(self, fn, callback) -> None:
+        worker = Worker(fn)
+        self._workers.append(worker)
+
+        def done(result) -> None:
+            try:
+                self._workers.remove(worker)
+            except ValueError:
+                pass
+            callback(result)
+
+        worker.signals.finished.connect(done)
+        self.pool.start(worker)
 
     def _offenders_done(self, result):
         items = result if isinstance(result, list) else []

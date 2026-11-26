@@ -17,7 +17,12 @@ def _norm01(v: float, lo: float, hi: float) -> float:
 
 
 def _state_accent(state: str) -> str:
-    return {"Idle": "blue", "Load": "green", "Boost": "red"}.get(state, "green")
+    """Return a descriptive, not alarmist, accent for CPU frequency states.
+
+    Boost is normal CPU behaviour. Thermal and power limits are monitored
+    separately, so a high clock alone must not make the card look critical.
+    """
+    return {"Idle": "blue", "Load": "green", "Boost": "blue"}.get(state, "green")
 
 
 def _hysteresis_next_state(current: str, ghz: float) -> str:

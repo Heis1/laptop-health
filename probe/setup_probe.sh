@@ -147,7 +147,7 @@ fi
 
 if [[ "${TLS_MODE_CHOICE}" == "self-signed" ]]; then
   APP_URL="https://${APP_HOST}:${PROBE_PORT}/metrics"
-  APP_CA_CERT="${ROOT_DIR}/probe/probe.crt"
+  APP_CA_CERT="${XDG_CONFIG_HOME:-$HOME/.config}/laptop-health/certs/probe.crt"
 else
   APP_URL="http://${APP_HOST}:${PROBE_PORT}/metrics"
   APP_CA_CERT=""

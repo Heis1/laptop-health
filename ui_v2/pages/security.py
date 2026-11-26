@@ -509,7 +509,11 @@ class SecurityPage(QWidget):
 
     def refresh(self) -> None:
         configs = enabled_probe_configs()
-        insecure = [cfg for cfg in configs if not cfg.url.lower().startswith("https://")]
+        insecure = [
+            cfg for cfg in configs
+            if not cfg.url.lower().startswith("https://")
+            or cfg.fallback_url.lower().startswith("http://")
+        ]
         if not configs:
             self.transport.set_values("No probes", "Nothing remote is configured yet", "green")
         elif insecure:
@@ -523,7 +527,10 @@ class SecurityPage(QWidget):
             self.secrets.set_values("Set up keyring", "Install a Secret Service provider before saving secrets", "orange")
 
         requirement = Path(__file__).resolve().parents[2] / "requirements-build.txt"
-        self._refresh_dependency_audit(requirement)
+        # The page is built at startup along with hidden pages.  Avoid launching
+        # the package inventory and remote OSV audit until it is actually shown.
+        if self.isVisible():
+            self._refresh_dependency_audit(requirement)
         if self._network_review_acknowledged():
             self.network.set_values("Acknowledged", "No new discovery guidance since your review", "green")
             self.network_review_btn.setText("View acknowledgement")
@@ -538,6 +545,10 @@ class SecurityPage(QWidget):
         ]
         self.guidance.setText("\n".join(bullets))
         self.assessed_at.setText(f"Last assessed {time.strftime('%H:%M:%S')} • {len(configs)} active probe(s)")
+
+    def showEvent(self, event) -> None:
+        super().showEvent(event)
+        self.refresh()
 
     def _update_score(self, insecure) -> None:
         score = 100
@@ -630,7 +641,11 @@ class SecurityPage(QWidget):
         else:
             self.dependencies.set_values("Unavailable", audit.get("detail", "OSV audit could not be reached"), "orange")
         configs = enabled_probe_configs()
-        self._update_score([cfg for cfg in configs if not cfg.url.lower().startswith("https://")])
+        self._update_score([
+            cfg for cfg in configs
+            if not cfg.url.lower().startswith("https://")
+            or cfg.fallback_url.lower().startswith("http://")
+        ])
 
     def _show_dependency_advisories(self) -> None:
         vulnerabilities = self._dependency_audit.get("vulnerabilities", [])

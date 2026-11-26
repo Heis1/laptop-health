@@ -81,6 +81,7 @@ class Sidebar(QFrame):
             local_icon(BATTERY_ICON_PATH, QStyle.SP_DriveFDIcon),
         )
         mk("network", "Network", QStyle.SP_DriveNetIcon)
+        mk("tailscale", "Tailscale", QStyle.SP_DriveNetIcon)
         mk("storage", "Storage", QStyle.SP_DriveHDIcon)
         mk(
             "remote",

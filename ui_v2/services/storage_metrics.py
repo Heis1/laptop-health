@@ -319,7 +319,7 @@ class StorageSnapshot:
     root: MountMetrics
     home: MountMetrics
     mounts: list[MountMetrics]
-    insights: StorageInsights
+    insights: StorageInsights | None = None
 
 
 def _mount_label(mount: str, home_mount: str) -> str:
@@ -460,15 +460,9 @@ def gather_storage(interval_s: float = 1.0) -> StorageSnapshot:
     for extra_mount in _additional_storage_mounts(home_mount):
         mounts.append(build(_mount_label(extra_mount, home_mount), extra_mount))
 
-    insights = StorageInsights(
-        top_label="Home",
-        home_top=_du_top_dirs(str(Path.home()), depth=1, topn=8),
-        var_log=_dir_size("/var/log"),
-        apt_cache=_dir_size("/var/cache/apt/archives"),
-        journal=_journal_usage(),
-    )
-
-    return StorageSnapshot(root=root, home=home, mounts=mounts, insights=insights)
+    # Folder-size analysis can walk a very large filesystem.  It is intentionally
+    # performed only by gather_storage_insights_for_mount(), on demand.
+    return StorageSnapshot(root=root, home=home, mounts=mounts)
 
 
 def gather_storage_insights_for_mount(mount: str) -> StorageInsights:

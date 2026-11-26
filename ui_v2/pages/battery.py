@@ -59,6 +59,8 @@ class BatteryPage(QWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.pool = QThreadPool()
+        self._workers: list[Worker] = []
+        self._refresh_in_flight = False
         outer = QVBoxLayout(self)
         outer.setContentsMargins(0, 0, 0, 0)
         outer.setSpacing(12)
@@ -110,8 +112,23 @@ class BatteryPage(QWidget):
         self.refresh()
 
     def refresh(self):
+        if not self.isVisible() or self._refresh_in_flight:
+            return
+        self._refresh_in_flight = True
         worker = Worker(read_battery_health)
-        worker.signals.finished.connect(self._apply)
+        self._workers.append(worker)
+
+        def done(data):
+            try:
+                self._apply(data)
+            finally:
+                self._refresh_in_flight = False
+                try:
+                    self._workers.remove(worker)
+                except ValueError:
+                    pass
+
+        worker.signals.finished.connect(done)
         self.pool.start(worker)
 
     def _apply(self, data):

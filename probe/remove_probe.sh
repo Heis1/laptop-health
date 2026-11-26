@@ -7,7 +7,7 @@ INSTALL_DIR="${PI_PROBE_INSTALL_DIR:-/opt/pi-probe}"
 SERVICE_NAME="pi-probe"
 ENV_FILE_PATH="${PI_PROBE_ENV_FILE:-/etc/pi-probe.env}"
 TOKEN_FILE_PATH="${PI_PROBE_TOKEN_FILE:-/etc/pi-probe.token}"
-LOCAL_CERT_OUT="${PI_PROBE_LOCAL_CERT_OUT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/probe/probe.crt}"
+LOCAL_CERT_OUT="${PI_PROBE_LOCAL_CERT_OUT:-${XDG_CONFIG_HOME:-$HOME/.config}/laptop-health/certs/probe.crt}"
 
 if [[ -z "${TARGET_HOST}" ]]; then
   read -r -p "Pi hostname or IP: " TARGET_HOST

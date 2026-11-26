@@ -199,9 +199,9 @@ def _port_line(port: dict[str, str]) -> str:
 NOISY_PRESETS = {
     "Default noisy": "",
     "Service focus": "-sV --version-light",
-    "SMB profile": "--script smb-os-discovery,smb-protocols",
-    "Web profile": "--script http-title,http-server-header",
-    "Safe vuln hints": "--script vuln",
+    "SMB profile": "",
+    "Web profile": "",
+    "Safe vuln hints": "",
 }
 
 
@@ -549,6 +549,7 @@ class NetworkPage(QWidget):
         self._last_discovery_result: DiscoveryResult | None = None
         self._discovery_windows: list[DiscoveryResultsDialog] = []
         self._live_refresh_in_flight = False
+        self._workers: list[QtWorker] = []
 
         grid = QGridLayout(self)
         grid.setContentsMargins(0, 0, 0, 0)
@@ -769,7 +770,7 @@ class NetworkPage(QWidget):
 
         self.options_input = QLineEdit()
         self.options_input.setObjectName("ActionInput")
-        self.options_input.setPlaceholderText("Extra nmap options for noisy scans, e.g. -sV --script smb-os-discovery")
+        self.options_input.setPlaceholderText("Optional scan tuning; NSE scripts and spoofing options are blocked")
         self.options_input.setMinimumHeight(36)
         opts.addWidget(self.options_input, 3)
 
@@ -827,13 +828,20 @@ class NetworkPage(QWidget):
 
     # -------- Live Network --------
     def _refresh_live(self):
-        if self._live_refresh_in_flight:
+        if not self.isVisible() or self._live_refresh_in_flight:
             return
         self._live_refresh_in_flight = True
         w = QtWorker(lambda: sample_network(0.75))
+        self._workers.append(w)
         w.signals.result.connect(self._apply_live)
         w.signals.error.connect(self._apply_live_error)
-        w.signals.finished.connect(lambda: setattr(self, "_live_refresh_in_flight", False))
+        def done() -> None:
+            self._live_refresh_in_flight = False
+            try:
+                self._workers.remove(w)
+            except ValueError:
+                pass
+        w.signals.finished.connect(done)
         self.pool.start(w)
 
     def _apply_live_error(self, msg: str):
@@ -886,9 +894,16 @@ class NetworkPage(QWidget):
         self._restyle(self.card)
 
         w = QtWorker(run_speedtest)
+        self._workers.append(w)
         w.signals.result.connect(self._apply_speed)
         w.signals.error.connect(lambda m: self._apply_speed(SpeedTestResult(False, None, None, None, None, None, time.time(), error=m)))
-        w.signals.finished.connect(self._speed_done)
+        def done() -> None:
+            self._speed_done()
+            try:
+                self._workers.remove(w)
+            except ValueError:
+                pass
+        w.signals.finished.connect(done)
         self.pool.start(w)
 
     def _speed_done(self):
@@ -961,9 +976,16 @@ class NetworkPage(QWidget):
                 extra_options=extra_options or None,
             )
         )
+        self._workers.append(w)
         w.signals.result.connect(self._apply_discovery)
         w.signals.error.connect(self._apply_discovery_error)
-        w.signals.finished.connect(self._scan_done)
+        def done() -> None:
+            self._scan_done()
+            try:
+                self._workers.remove(w)
+            except ValueError:
+                pass
+        w.signals.finished.connect(done)
         self.pool.start(w)
 
     def _scan_done(self):
@@ -983,10 +1005,10 @@ class NetworkPage(QWidget):
             self.preset_select.setEnabled(True)
             self.options_input.setVisible(True)
             self.options_input.setEnabled(True)
-            self.options_input.setPlaceholderText("Extra nmap options for noisy scans, e.g. -sV --script smb-os-discovery")
+            self.options_input.setPlaceholderText("Optional scan tuning; NSE scripts and spoofing options are blocked")
             self.discovery_sub.setText("Noisy scan inspects open ports, service banners, and OS hints")
             if not self.options_input.text().strip():
-                self.discovery_meta.setText("Tip: add scripts like --script smb-os-discovery for deeper LAN profiling")
+                self.discovery_meta.setText("Service and OS detection are included; custom scripts are intentionally disabled.")
         else:
             self.preset_select.setVisible(False)
             self.preset_select.setEnabled(False)
