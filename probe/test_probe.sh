@@ -2,7 +2,7 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-DEFAULT_CERT="${ROOT_DIR}/probe/probe.crt"
+DEFAULT_CERT="${XDG_CONFIG_HOME:-$HOME/.config}/laptop-health/certs/probe.crt"
 
 prompt_default() {
   local label="$1"

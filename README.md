@@ -205,7 +205,7 @@ Then in the app:
 Recommended verification:
 
 - confirm `./probe/test_probe.sh` returns JSON for the configured probe
-- confirm the app accepts the CA certificate at `probe/probe.crt` when using self-signed TLS
+- confirm the app accepts the CA certificate saved under `~/.config/laptop-health/certs/` when using self-signed TLS
 - confirm the overview card hides completely when no probes are enabled
 - confirm manual prev/next switching and automatic rotation both work when multiple probes are enabled
 - if the probe host runs Pi-hole, enable Pi-hole stats in `Probe settings` and confirm `Probes` shows Pi-hole status, activity, top clients, and top blocked domains
@@ -248,7 +248,7 @@ That script:
 - runs the service as the SSH user you selected with `PI_PROBE_USER`
 - generates a self-signed TLS certificate by default
 - enables and restarts the `pi-probe` systemd service
-- copies the Pi certificate back to `probe/probe.crt` on your laptop
+- copies the Pi certificate back to `~/.config/laptop-health/certs/probe.crt` on your laptop
 - reuses one SSH connection, so you should only need to authenticate once per deploy
 
 Run it on the Raspberry Pi:
@@ -282,7 +282,7 @@ Then point Laptop Health at:
 
 - URL: `https://raspberrypi.local:9821/metrics`
 - Token: the same `PI_PROBE_TOKEN`
-- CA certificate: leave blank if the cert chains to a normal trusted CA, or set it to the local path of the Pi certificate if you are using a self-signed cert, for example `probe/probe.crt`
+- CA certificate: leave blank if the cert chains to a normal trusted CA, or set it to the local path of the Pi certificate if you are using a self-signed cert, for example `~/.config/laptop-health/certs/probe.crt`
 
 If you changed the port, use that port in the URL instead of `9821`.
 
