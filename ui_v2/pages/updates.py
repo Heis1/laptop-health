@@ -1071,8 +1071,12 @@ class UpdatesPage(QWidget):
     def _append_log(self, text: str):
         if text:
             self.log.append(text)
+            document = self.log.document()
+            document.setMaximumBlockCount(2_000)
 
     def refresh(self):
+        if not self.isVisible():
+            return
         self._refresh_failed = False
         self._set_busy(True, "\n== Refreshing updates list… ==")
 
@@ -1088,6 +1092,7 @@ class UpdatesPage(QWidget):
         w.signals.result.connect(self._on_refresh)
         w.signals.error.connect(self._on_refresh_error)
         w.signals.finished.connect(lambda: self._set_busy(False))
+        w.signals.finished.connect(lambda: self._workers.remove(w) if w in self._workers else None)
         self._workers.append(w)
         self._start_worker(w)
 
@@ -1165,3 +1170,8 @@ class UpdatesPage(QWidget):
     def _start_worker(self, w: QtWorker):
         from PySide6.QtCore import QThreadPool
         QThreadPool.globalInstance().start(w)
+
+    def showEvent(self, event):
+        super().showEvent(event)
+        if not self._is_action_running():
+            self.refresh()

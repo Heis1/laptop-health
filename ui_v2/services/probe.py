@@ -9,6 +9,7 @@ import subprocess
 import time
 import urllib.error
 import urllib.request
+from urllib.parse import urlsplit, urlunsplit
 from dataclasses import dataclass
 from typing import Any
 
@@ -35,6 +36,7 @@ class ProbeConfig:
     enabled: bool = False
     name: str = "Raspberry Pi"
     url: str = ""
+    fallback_url: str = ""
     token: str = ""
     ca_cert_path: str = ""
     pihole_enabled: bool = False
@@ -152,6 +154,7 @@ def new_probe_config(*, name: str = "Raspberry Pi") -> ProbeConfig:
         enabled=False,
         name=name,
         url="",
+        fallback_url="",
         token="",
         ca_cert_path="",
         pihole_enabled=False,
@@ -169,6 +172,7 @@ def _legacy_env_probe() -> ProbeConfig | None:
         enabled=True,
         name=(os.getenv("LAPTOP_HEALTH_PI_PROBE_NAME") or "Raspberry Pi").strip() or "Raspberry Pi",
         url=url,
+        fallback_url=(os.getenv("LAPTOP_HEALTH_PI_PROBE_FALLBACK_URL") or "").strip(),
         token=(os.getenv("LAPTOP_HEALTH_PI_PROBE_TOKEN") or "").strip(),
         ca_cert_path=(os.getenv("LAPTOP_HEALTH_PI_PROBE_CA_CERT") or "").strip(),
         pihole_enabled=False,
@@ -193,6 +197,7 @@ def _load_legacy_single_probe() -> ProbeConfig | None:
         enabled=bool(data.get("enabled", env_probe.enabled if env_probe else False)),
         name=str(data.get("name", env_probe.name if env_probe else "Raspberry Pi") or "Raspberry Pi"),
         url=str(data.get("url", env_probe.url if env_probe else "") or "").strip(),
+        fallback_url=str(data.get("fallback_url", env_probe.fallback_url if env_probe else "") or "").strip(),
         token=(env_probe.token if env_probe else ""),
         ca_cert_path=str(data.get("ca_cert_path", env_probe.ca_cert_path if env_probe else "") or "").strip(),
         pihole_enabled=bool(data.get("pihole_enabled", False)),
@@ -237,6 +242,7 @@ def load_probe_configs() -> list[ProbeConfig]:
                     enabled=bool(raw.get("enabled", False)),
                     name=str(raw.get("name", "Raspberry Pi") or "Raspberry Pi"),
                     url=str(raw.get("url", "") or "").strip(),
+                    fallback_url=str(raw.get("fallback_url", "") or "").strip(),
                     token=_load_probe_token(probe_id),
                     ca_cert_path=str(raw.get("ca_cert_path", "") or "").strip(),
                     pihole_enabled=bool(raw.get("pihole_enabled", False)),
@@ -264,6 +270,7 @@ def save_probe_configs(configs: list[ProbeConfig]) -> None:
                 "enabled": bool(cfg.enabled),
                 "name": cfg.name,
                 "url": cfg.url,
+                "fallback_url": cfg.fallback_url,
                 "ca_cert_path": cfg.ca_cert_path,
                 "pihole_enabled": bool(cfg.pihole_enabled),
                 "pihole_url": cfg.pihole_url,
@@ -352,25 +359,46 @@ def _read_json_response_limited(response, *, limit: int = MAX_REMOTE_JSON_BYTES)
     return payload
 
 
+def _fallback_endpoint_url(fallback: str, primary: str) -> str:
+    """Turn a bare fallback IP or hostname into the equivalent HTTPS endpoint."""
+    fallback = fallback.strip()
+    if not fallback or "://" in fallback:
+        return fallback
+    primary_parts = urlsplit(primary)
+    fallback_parts = urlsplit(f"//{fallback}")
+    if not primary_parts.hostname or not fallback_parts.netloc:
+        return fallback
+    fallback_netloc = fallback_parts.netloc
+    if fallback_parts.port is None and primary_parts.port is not None:
+        fallback_netloc = f"{fallback_netloc}:{primary_parts.port}"
+    return urlunsplit(("https", fallback_netloc, primary_parts.path or "/metrics", primary_parts.query, ""))
+
+
 def fetch_probe_snapshot(config: ProbeConfig) -> dict[str, Any]:
-    url = config.url.strip()
-    if not url:
+    primary_url = config.url.strip()
+    fallback_url = _fallback_endpoint_url(config.fallback_url, primary_url)
+    urls = [url for url in (primary_url, fallback_url) if url]
+    if not urls:
         raise ValueError("Probe URL is empty")
-    _require_https(url, "Probe URL")
+    failures: list[str] = []
+    for index, url in enumerate(urls):
+        label = "Probe URL" if index == 0 else "Fallback probe URL"
+        try:
+            _require_https(url, label)
+            req = urllib.request.Request(url)
+            if config.token:
+                req.add_header("Authorization", f"Bearer {config.token}")
+            context = (
+                ssl.create_default_context(cafile=config.ca_cert_path)
+                if config.ca_cert_path
+                else ssl.create_default_context()
+            )
+            with urllib.request.urlopen(req, timeout=2.5, context=context) as response:
+                return _read_json_response_limited(response)
+        except Exception as exc:
+            failures.append(f"{label} ({url}): {exc}")
 
-    req = urllib.request.Request(url)
-    if config.token:
-        req.add_header("Authorization", f"Bearer {config.token}")
-
-    context = None
-    if url.lower().startswith("https://"):
-        if config.ca_cert_path:
-            context = ssl.create_default_context(cafile=config.ca_cert_path)
-        else:
-            context = ssl.create_default_context()
-
-    with urllib.request.urlopen(req, timeout=2.5, context=context) as response:
-        return _read_json_response_limited(response)
+    raise RuntimeError("; ".join(failures))
 
 
 def _ssl_context_for_url(config: ProbeConfig, url: str):

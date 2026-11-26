@@ -398,7 +398,12 @@ class DashboardPage(QWidget):
         def _load_probes():
             results = {}
             for cfg in probes:
-                item = {"probe": fetch_probe_snapshot(cfg)}
+                try:
+                    item = {"probe": fetch_probe_snapshot(cfg)}
+                except Exception as exc:
+                    # A stale or unavailable secondary probe must not hide a
+                    # healthy probe on the Overview card.
+                    item = {"probe": exc}
                 results[cfg.id] = item
             return results
 
@@ -548,6 +553,10 @@ class DashboardPage(QWidget):
         def _done_overview(res):
             try:
                 self._apply(res)
+                if isinstance(res, OverviewMetrics):
+                    self._refresh_ctl.mark_done_ok()
+                else:
+                    self._refresh_ctl.mark_done_fail()
             finally:
                 self._overview_refresh_in_flight = False
                 try:

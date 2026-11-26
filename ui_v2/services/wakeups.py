@@ -153,22 +153,31 @@ def wakeups_hint_fast() -> str:
 def wakeups_hint_deep() -> str:
     if not powertop_installed():
         return "powertop not installed"
-    if not sudo_cached():
-        return "Run `sudo -v` first"
-    return "Deep sample uses powertop (~20s)"
+    if _trusted_path("pkexec"):
+        return "Deep sample uses powertop (~20s) and will request authorisation"
+    if sudo_cached():
+        return "Deep sample uses powertop (~20s)"
+    return "Administrator authorisation is required for the deep sample"
 
 
 def deep_sample_ready() -> tuple[bool, str]:
     if not powertop_installed():
         return False, "powertop is not installed"
-    if not sudo_cached():
-        return False, "Run `sudo -v` in a terminal first"
-    return True, "Deep analysis available"
+    if _trusted_path("pkexec"):
+        return True, "Deep analysis will request administrator authorisation"
+    if sudo_cached():
+        return True, "Deep analysis available"
+    return False, "Administrator authorisation is unavailable (install pkexec or run `sudo -v` in a terminal)"
 
 
 def deep_sample_state() -> tuple[str, str]:
     if not powertop_installed():
         return "missing_powertop", "Install `powertop` to enable deep analysis."
+    # Prefer Polkit when it is available.  Calling `sudo -n true` on every
+    # dashboard refresh produces an authentication failure in the journal and
+    # can itself inflate wakeup/context-switch telemetry.
+    if _trusted_path("pkexec"):
+        return "ready", "Deep analysis will request administrator authorisation when it runs."
     sudo_state, sudo_msg = sudo_ready_state()
     if sudo_state != "ready":
         return sudo_state, sudo_msg
@@ -177,6 +186,9 @@ def deep_sample_state() -> tuple[str, str]:
 
 def deep_sample_debug_text() -> str:
     parts = [f"powertop_installed={powertop_installed()}"]
+    if _trusted_path("pkexec"):
+        parts.append("privilege_tool=pkexec (on demand)")
+        return " | ".join(parts)
     state, msg = sudo_ready_state()
     parts.append(f"sudo_state={state}")
     parts.append(f"sudo_msg={msg}")
@@ -188,7 +200,13 @@ def sample_wakeups_powertop_slow(timeout_s: int = 25) -> float | None:
     Your build appears to run ~20s measurements even with --time 1, so we treat it as slow.
     Uses sudo -n (no prompts). Returns None on failure.
     """
-    if not powertop_installed() or not sudo_cached():
+    if not powertop_installed():
+        return None
+
+    # Prefer an on-demand desktop authorisation prompt.  Do not probe sudo
+    # repeatedly from the dashboard's refresh timer.
+    privileged_tool = "pkexec" if _trusted_path("pkexec") else "sudo" if sudo_cached() else ""
+    if not privileged_tool:
         return None
 
     with tempfile.TemporaryDirectory() as td:
@@ -197,17 +215,15 @@ def sample_wakeups_powertop_slow(timeout_s: int = 25) -> float | None:
         if not powertop:
             return None
 
-        # Some powertop versions accept just --csv=FILE, others accept --csv and write default.
-        # We'll try robustly:
+        # Modern powertop accepts --csv=FILE.  Keeping this to one privileged
+        # invocation avoids showing several Polkit prompts for one click.
         tried_cmds = [
             [powertop, f"--csv={csv_path}"],
-            [powertop, "--csv", f"--csv={csv_path}"],
-            [powertop, "--csv", csv_path],
         ]
 
         for c in tried_cmds:
             try:
-                system.run_privileged("sudo", c, timeout_s=timeout_s)
+                system.run_privileged(privileged_tool, c, timeout_s=timeout_s)
             except Exception:
                 pass
 

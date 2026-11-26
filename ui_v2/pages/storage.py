@@ -31,6 +31,9 @@ class StoragePage(QWidget):
         self._selected_mount = "/"
         self._insights_mount: str | None = None
         self._drive_buttons: dict[str, QPushButton] = {}
+        self._workers: list[Worker] = []
+        self._refresh_in_flight = False
+        self._insights_in_flight = False
 
         outer = QHBoxLayout(self)
         outer.setContentsMargins(0, 0, 0, 0)
@@ -131,7 +134,7 @@ class StoragePage(QWidget):
         self._sync_drive_buttons()
         self._refresh()
         self.timer = QTimer(self)
-        self.timer.setInterval(1000)
+        self.timer.setInterval(5000)
         self.timer.timeout.connect(self._refresh)
         self.timer.start()
 
@@ -184,8 +187,23 @@ class StoragePage(QWidget):
         return self._mounts[0] if self._mounts else None
 
     def _refresh(self) -> None:
+        if not self.isVisible() or self._refresh_in_flight:
+            return
+        self._refresh_in_flight = True
         w = Worker(lambda: gather_storage(interval_s=1.0))
-        w.signals.finished.connect(self._apply)
+        self._workers.append(w)
+
+        def done(result) -> None:
+            try:
+                self._apply(result)
+            finally:
+                self._refresh_in_flight = False
+                try:
+                    self._workers.remove(w)
+                except ValueError:
+                    pass
+
+        w.signals.finished.connect(done)
         self.pool.start(w)
 
     def _toggle_insights(self) -> None:
@@ -196,13 +214,26 @@ class StoragePage(QWidget):
             self._refresh_insights(force=True)
 
     def _refresh_insights(self, force: bool = False) -> None:
-        if not self.insights.isVisible():
+        if not self.insights.isVisible() or self._insights_in_flight:
             return
         if not force and self._insights_mount == self._selected_mount:
             return
         mount = self._selected_mount
+        self._insights_in_flight = True
         w = Worker(lambda: (mount, gather_storage_insights_for_mount(mount)))
-        w.signals.finished.connect(self._apply_insights)
+        self._workers.append(w)
+
+        def done(result) -> None:
+            try:
+                self._apply_insights(result)
+            finally:
+                self._insights_in_flight = False
+                try:
+                    self._workers.remove(w)
+                except ValueError:
+                    pass
+
+        w.signals.finished.connect(done)
         self.pool.start(w)
 
     def _apply_insights(self, result) -> None:
@@ -242,7 +273,7 @@ class StoragePage(QWidget):
         self.usage.title.setText(f"Disk Usage ({current.label})")
         self.usage.set_disk(current.used_pct, current.free_gb, target=current.mount, mount_label=current.label)
         self.io.apply(current)
-        self._refresh_insights(force=True)
+        self._refresh_insights()
 
     def _apply(self, result) -> None:
         if not isinstance(result, StorageSnapshot):
@@ -252,3 +283,12 @@ class StoragePage(QWidget):
             self._selected_mount = self._mounts[0].mount
         self._sync_drive_buttons()
         self._apply_current()
+
+    def showEvent(self, event) -> None:
+        super().showEvent(event)
+        self.timer.start()
+        self._refresh()
+
+    def hideEvent(self, event) -> None:
+        self.timer.stop()
+        super().hideEvent(event)

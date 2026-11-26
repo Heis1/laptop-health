@@ -87,7 +87,16 @@ def _parse_extra_options(extra_options: str | None) -> tuple[list[str], str | No
     except ValueError as exc:
         return [], f"Invalid extra options: {exc}"
 
-    blocked = ("-oX", "-oN", "-oG", "-oA", "-oS", "--webxml", "--stylesheet", "--resume", "-iL", "-iR")
+    # This command can be launched through pkexec.  Do not let a free-form UI
+    # field select NSE scripts, alternate data files, or packet-spoofing modes.
+    # Those are either code execution surfaces or can make scans unexpectedly
+    # disruptive.  The application already chooses its scan type itself.
+    blocked = (
+        "-oX", "-oN", "-oG", "-oA", "-oS", "--webxml", "--stylesheet", "--resume", "-iL", "-iR",
+        "--script", "--script-args", "--script-args-file", "--datadir", "--lua-exec",
+        "--spoof-mac", "--source-port", "--proxies", "--data", "--data-string", "--data-length",
+        "-e", "-S", "-D", "--send-eth", "--badsum", "--ip-options", "--ttl",
+    )
     for part in parts:
         if part in blocked:
             return [], f"Unsupported option for app-managed scan: {part}"

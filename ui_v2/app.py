@@ -21,6 +21,7 @@ from ui_v2.widgets.sidebar import Sidebar
 from ui_v2.pages.dashboard import DashboardPage
 from ui_v2.pages.power import PowerPage
 from ui_v2.pages.network import NetworkPage
+from ui_v2.pages.tailscale import TailscalePage
 from ui_v2.pages.remote import RemotePage
 from ui_v2.pages.storage import StoragePage
 from ui_v2.pages.updates import UpdatesPage
@@ -323,12 +324,13 @@ class MainWindow(QMainWindow):
             "battery": BatteryPage(),
             "storage": StoragePage(),
             "network": NetworkPage(),
+            "tailscale": TailscalePage(),
             "remote": RemotePage(self._open_probe_settings, self),
             "updates": UpdatesPage(),
             "security": SecurityPage(),
             "dev": DevToolsPage(),
         }
-        self.page_order = ["dashboard", "power", "battery", "storage", "network", "remote", "updates", "security", "dev"]
+        self.page_order = ["dashboard", "power", "battery", "storage", "network", "tailscale", "remote", "updates", "security", "dev"]
         for k in self.page_order:
             self.stack.addWidget(self.pages[k])
         c.addWidget(self.stack, 1)
@@ -339,6 +341,7 @@ class MainWindow(QMainWindow):
         self.sidebar.buttons["battery"].clicked.connect(lambda: self._go("battery"))
         self.sidebar.buttons["storage"].clicked.connect(lambda: self._go("storage"))
         self.sidebar.buttons["network"].clicked.connect(lambda: self._go("network"))
+        self.sidebar.buttons["tailscale"].clicked.connect(lambda: self._go("tailscale"))
         self.sidebar.buttons["remote"].clicked.connect(lambda: self._go("remote"))
         self.sidebar.buttons["updates"].clicked.connect(lambda: self._go("updates"))
         self.sidebar.buttons["security"].clicked.connect(lambda: self._go("security"))
@@ -360,6 +363,8 @@ class MainWindow(QMainWindow):
             return StoragePage()
         if key == "network":
             return NetworkPage()
+        if key == "tailscale":
+            return TailscalePage()
         if key == "remote":
             return RemotePage(self._open_probe_settings, self)
         if key == "updates":
@@ -377,6 +382,7 @@ class MainWindow(QMainWindow):
             "battery": ("Battery Health", "Capacity, cycles, and charge state"),
             "storage": ("Storage", "Mounted drives and storage analysis"),
             "network": ("Network", "Live network metrics and discovery"),
+            "tailscale": ("Tailscale", "Live tailnet health and node status"),
             "remote": ("Probe/s", "Probe management and remote monitoring"),
             "updates": ("Updates", "System package and release updates"),
             "security": ("Security Centre", "Local and remote security posture"),

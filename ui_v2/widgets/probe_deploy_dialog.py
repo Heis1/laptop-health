@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import base64
 import copy
+import getpass
 import hashlib
 import os
 import re
@@ -37,7 +38,7 @@ class _DeployThread(QThread):
     output = Signal(str)
     done = Signal(int)
 
-    def __init__(self, *, host: str, user: str, bind_host: str, port: int, tls_mode: str, tls_cn: str, token: str, ssh_password: str, sudo_password: str, local_cert_out: str):
+    def __init__(self, *, host: str, user: str, bind_host: str, port: int, tls_mode: str, tls_cn: str, tls_alt_name: str, token: str, ssh_password: str, sudo_password: str, local_cert_out: str):
         super().__init__()
         self.host = host
         self.user = user
@@ -45,6 +46,7 @@ class _DeployThread(QThread):
         self.port = port
         self.tls_mode = tls_mode
         self.tls_cn = tls_cn
+        self.tls_alt_name = tls_alt_name
         self.token = token
         self.ssh_password = ssh_password
         self.sudo_password = sudo_password or ssh_password
@@ -82,6 +84,7 @@ class _DeployThread(QThread):
                 "look_for_keys": True,
                 "allow_agent": True,
             }
+            _configure_ssh_agent()
             if self.ssh_password:
                 connect_kwargs["password"] = self.ssh_password
             client.connect(**connect_kwargs)
@@ -104,7 +107,10 @@ class _DeployThread(QThread):
 
             if self.tls_mode == "self-signed":
                 self.output.emit("Generating self-signed certificate on the Pi\n")
-                tls_san = f"IP:{self.tls_cn}" if re.match(r'^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$', self.tls_cn) else f"DNS:{self.tls_cn}"
+                tls_names = [self.tls_cn]
+                if self.tls_alt_name and self.tls_alt_name != self.tls_cn:
+                    tls_names.append(self.tls_alt_name)
+                tls_san = ",".join(_tls_san_entry(name) for name in tls_names)
                 self._run_remote(
                     client,
                     " && ".join(
@@ -204,6 +210,15 @@ class _DeployThread(QThread):
                 f"Host: {self.host}\n"
                 f"Expected key type: {exc.expected_key.get_name()}\n"
                 "Check your known_hosts entry for this device before retrying.\n"
+            )
+            self.done.emit(1)
+        except paramiko.AuthenticationException as exc:
+            self.output.emit(
+                "\nInstall failed: SSH authentication failed.\n"
+                f"Host: {self.host}\n"
+                f"User: {self.user}\n"
+                "Check the SSH user, then provide its password or make its SSH key available to the desktop session.\n"
+                f"Details: {exc}\n"
             )
             self.done.emit(1)
         except paramiko.SSHException as exc:
@@ -442,7 +457,7 @@ class ProbeDeployDialog(QDialog):
         self.bind_host_input.setPlaceholderText("0.0.0.0")
         form.addRow(self._label_row("Bind address", self._help_bind_host), self.bind_host_input)
 
-        self.user_input = QLineEdit("pi")
+        self.user_input = QLineEdit(getpass.getuser() or "pi")
         self.user_input.setPlaceholderText("Usually pi, aron, or your own SSH username")
         form.addRow(self._label_row("Pi SSH user", self._help_user), self.user_input)
 
@@ -454,6 +469,11 @@ class ProbeDeployDialog(QDialog):
         self.tls_host_input = QLineEdit(_extract_host(config.url) or "")
         self.tls_host_input.setPlaceholderText("Must match what this laptop will connect to")
         form.addRow(self._label_row("Hostname or IP for HTTPS", self._help_tls_host), self.tls_host_input)
+
+        fallback_address = _extract_host(config.fallback_url) or config.fallback_url.strip()
+        self.tls_alt_name_input = QLineEdit(fallback_address)
+        self.tls_alt_name_input.setPlaceholderText("Optional Tailscale IP or MagicDNS hostname")
+        form.addRow("Additional HTTPS address", self.tls_alt_name_input)
 
         self.generate_token = QCheckBox("Generate a new token")
         self.generate_token.setChecked(True)
@@ -692,6 +712,7 @@ class ProbeDeployDialog(QDialog):
 
     def _toggle_tls(self, checked: bool) -> None:
         self.tls_host_input.setEnabled(checked)
+        self.tls_alt_name_input.setEnabled(checked)
 
     def _toggle_generate_token(self, checked: bool) -> None:
         self.token_input.setEnabled(not checked)
@@ -890,6 +911,7 @@ class ProbeDeployDialog(QDialog):
         port_text = self.port_input.text().strip()
         tls_mode = "self-signed" if self.tls_self_signed.isChecked() else "off"
         tls_cn = self.tls_host_input.text().strip() if self.tls_self_signed.isChecked() else host
+        tls_alt_name = self.tls_alt_name_input.text().strip() if self.tls_self_signed.isChecked() else ""
         token = self.token_input.text().strip() if not self.generate_token.isChecked() else _generate_token()
         ssh_password = self.ssh_password_input.text()
         sudo_password = self.sudo_password_input.text()
@@ -899,6 +921,9 @@ class ProbeDeployDialog(QDialog):
             return
         if self.tls_self_signed.isChecked() and not tls_cn:
             self._append("HTTPS hostname or IP is required for self-signed TLS.\n")
+            return
+        if tls_alt_name and not re.match(r"^[A-Za-z0-9._:-]+$", tls_alt_name):
+            self._append("Additional HTTPS address must be an IP address or hostname.\n")
             return
         try:
             port = int(port_text or "9821")
@@ -945,6 +970,7 @@ class ProbeDeployDialog(QDialog):
             port=port,
             tls_mode=tls_mode,
             tls_cn=tls_cn,
+            tls_alt_name=tls_alt_name,
             token=token,
             ssh_password=ssh_password,
             sudo_password=sudo_password,
@@ -1047,6 +1073,10 @@ def _extract_host(url: str) -> str:
     return m.group(1) if m else ""
 
 
+def _tls_san_entry(name: str) -> str:
+    return f"IP:{name}" if re.match(r"^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$", name) else f"DNS:{name}"
+
+
 def _extract_port(url: str) -> str:
     m = re.match(r"^https?://[^/:]+:(\d+)", url or "")
     return m.group(1) if m else ""
@@ -1059,6 +1089,16 @@ def _ssh_fingerprint_sha256(key) -> str:
 
 def _known_hosts_path() -> str:
     return os.path.join(os.path.expanduser("~"), ".ssh", "known_hosts")
+
+
+def _configure_ssh_agent() -> None:
+    """Make the standard 1Password SSH agent available to GUI launches."""
+    configured = os.environ.get("SSH_AUTH_SOCK", "")
+    if configured and os.path.exists(configured):
+        return
+    onepassword_socket = os.path.join(os.path.expanduser("~"), ".1password", "agent.sock")
+    if os.path.exists(onepassword_socket):
+        os.environ["SSH_AUTH_SOCK"] = onepassword_socket
 
 
 def _host_is_known(host: str) -> bool:
