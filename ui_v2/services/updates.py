@@ -396,9 +396,14 @@ def get_apt_action_argv(action: str) -> list[str]:
     if is_root:
         return inner
 
-    pkexec = _resolve_trusted("pkexec")
-
-    return [pkexec] + inner
+    tool = system.preferred_privilege_tool()
+    if tool is None:
+        raise FileNotFoundError("Neither pkexec nor sudo is available")
+    if tool == "sudo":
+        # pam_u2f performs the touch over HID without a terminal. Do not add
+        # sudo -n: it suppresses PAM's conversation before the key can prompt.
+        return [_resolve_trusted("sudo")] + inner
+    return [_resolve_trusted("pkexec")] + inner
 
 
 def run_apt_action(action: str) -> tuple[int, str]:

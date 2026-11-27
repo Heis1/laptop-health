@@ -12,6 +12,7 @@ from PySide6.QtWidgets import (
     QTableWidgetItem, QHeaderView, QTextEdit, QFrame, QStyle, QDialog,
     QGraphicsOpacityEffect, QMessageBox, QSplitter,
 )
+import system
 from ui_v2.qtworker import QtWorker
 from ui_v2.theme import current_theme_mode
 from ui_v2.services.updates import (
@@ -282,6 +283,8 @@ class AptActionRunner(QThread):
             return
 
         try:
+            if system.yubikey_sudo_enabled():
+                self.line.emit("Touch your YubiKey to authorise this action…")
             self._proc = subprocess.Popen(
                 argv,
                 stdout=subprocess.PIPE,

@@ -123,15 +123,16 @@ def set_tailscale_enabled(enabled: bool) -> tuple[bool, str]:
     tailscale = shutil.which("tailscale")
     if tailscale is None:
         return False, "Tailscale is not installed"
-    if shutil.which("pkexec") is None:
-        return False, "Desktop authorisation (pkexec) is required to change Tailscale state"
+    privilege_tool = system.preferred_privilege_tool()
+    if privilege_tool is None:
+        return False, "Administrator authorisation (pkexec or sudo) is required to change Tailscale state"
     try:
         # `tailscale up` and `tailscale down` change machine-wide network
         # state.  Invoking them as the desktop user usually fails silently
         # from the UI because the local API requires administrator authority.
         # Ask Polkit only after the user presses the button.
         code, stdout, stderr = system.run_privileged(
-            "pkexec", [tailscale, "up" if enabled else "down"], timeout_s=30.0
+            privilege_tool, [tailscale, "up" if enabled else "down"], timeout_s=30.0
         )
     except Exception as exc:
         return False, str(exc)

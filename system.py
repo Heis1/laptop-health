@@ -6,6 +6,7 @@ Move general system/stat collection code here in small commits.
 from __future__ import annotations
 
 import os
+from pathlib import Path
 import shutil
 import socket
 import subprocess
@@ -28,6 +29,30 @@ except Exception:
 def which(cmd: str) -> str | None:
     """Return full path to cmd if found on PATH; else None."""
     return shutil.which(cmd)
+
+
+def yubikey_sudo_enabled() -> bool:
+    """Whether sudo is configured with pam_u2f on this computer.
+
+    This is intentionally a read-only feature check.  Laptop Health does not
+    edit PAM policy; on systems without this explicit configuration it retains
+    the normal PolicyKit path.
+    """
+    try:
+        return "pam_u2f.so" in Path("/etc/pam.d/sudo").read_text(encoding="utf-8", errors="ignore")
+    except OSError:
+        return False
+
+
+def preferred_privilege_tool() -> str | None:
+    """Choose YubiKey-backed sudo when available, otherwise PolicyKit."""
+    if yubikey_sudo_enabled() and which("sudo"):
+        return "sudo"
+    if which("pkexec"):
+        return "pkexec"
+    if which("sudo"):
+        return "sudo"
+    return None
 
 
 def run_cmd(
@@ -124,6 +149,10 @@ def run_privileged(
     if not isinstance(argv, list) or not argv or any(not isinstance(x, str) for x in argv):
         return 2, "", "Invalid argv (must be non-empty list[str])"
 
+    # Existing callers request pkexec.  On a computer explicitly configured
+    # for pam_u2f sudo, use that verified touch path instead.
+    if tool == "pkexec" and yubikey_sudo_enabled():
+        tool = "sudo"
     tool_path = shutil.which(tool)
     if tool_path is None:
         return 127, "", f"{tool} not found"
@@ -139,7 +168,8 @@ def run_privileged(
     if not _is_trusted_exec_path(target):
         return 126, "", f"Untrusted target path: {target}"
 
-    full = [tool_path, target] + argv[1:]
+    full = [tool_path]
+    full += [target] + argv[1:]
 
     # Keep env minimal and predictable for privileged calls
     env = {"LANG": "C", "LC_ALL": "C"}
